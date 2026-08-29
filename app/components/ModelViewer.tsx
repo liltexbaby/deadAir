@@ -110,6 +110,11 @@ const ENV_FALLBACK_INTENSITY = 1.6;
 const AMBIENT_LIGHT_MOBILE = 0.5;
 const KEY_LIGHT_INTENSITY_MOBILE = 0.9;
 
+// Frame rate for the tower while a mobile panel is open over it. It's only
+// visible through a heavy blur there, so this is well below the point where a
+// drop in smoothness reads as stutter. Raise to 60 to disable the throttle.
+const PANEL_FPS = 24;
+
 // SHADOW SETTINGS
 const SHADOW_OPACITY = 0.55;
 const SHADOW_BLUR = 2.5;
@@ -308,6 +313,20 @@ function resolveShot(
   // section cameras 22.9deg). Previously all of this was discarded and
   // everything rendered at R3F's default 75deg.
   return target instanceof THREE.PerspectiveCamera ? target.fov : FOV_FALLBACK;
+}
+
+/**
+ * Drives the render loop at a fixed rate while the Canvas is in 'demand' mode.
+ * Pass fps = null to do nothing (the loop is running at full rate).
+ */
+function FrameThrottle({ fps }: { fps: number | null }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (fps === null) return;
+    const id = setInterval(invalidate, 1000 / fps);
+    return () => clearInterval(id);
+  }, [fps, invalidate]);
+  return null;
 }
 
 function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
@@ -760,26 +779,32 @@ export default function ModelViewer({
   const coarse = useCoarsePointer();
   const isNarrow = useIsNarrow();
 
-  // Stop rendering once a panel has fully covered the canvas.
+  // Throttle — do NOT stop — the render loop while a mobile panel is open.
   //
-  // On mobile the panel is a full-screen sheet, so every frame drawn behind it
-  // is invisible — and worse, the panel's backdrop-blur has to re-blur the
-  // whole viewport each time the canvas repaints. Freezing the loop removes the
-  // scene render AND turns that blur into a static one the compositor can cache.
-  // Desktop keeps rendering: there the panel is a half-width column and the
-  // tower stays on screen.
+  // The sheet is bg-black/70 with a blur, not opaque, so the tower stays visible
+  // through it and that drifting motion is part of the look. Freezing the loop
+  // outright is cheaper but kills it.
   //
-  // Deferred by the length of the panel's slide so the tower doesn't visibly
-  // freeze while it's still partly visible.
+  // The cost being managed is real though: at full rate the scene redraws 60x a
+  // second AND the panel's backdrop-blur re-blurs the whole viewport each time,
+  // which is what made opening a panel stutter on a phone. Behind a 24px blur
+  // at 70% black, a lower frame rate is not perceptible, so this keeps the
+  // movement at a fraction of the work.
+  //
+  // Desktop is untouched: there the panel is a half-width column and the tower
+  // is in full view at full rate.
+  //
+  // Deferred by the length of the panel's slide so the transition itself — the
+  // one moment smoothness actually shows — still runs at full rate.
   const covered = isNarrow && activeSection !== null;
-  const [paused, setPaused] = useState(false);
-  // Resuming has to be immediate, and adjusting state during render is React's
-  // sanctioned way to do that — an effect would leave one frozen frame visible
-  // as the panel slides away.
-  if (!covered && paused) setPaused(false);
+  const [throttled, setThrottled] = useState(false);
+  // Restoring full rate has to be immediate, and adjusting state during render
+  // is React's sanctioned way to do that — an effect would leave the tower
+  // running slow for a frame as the panel slides away.
+  if (!covered && throttled) setThrottled(false);
   useEffect(() => {
     if (!covered) return;
-    const t = setTimeout(() => setPaused(true), 350);   // panel transition is 300ms
+    const t = setTimeout(() => setThrottled(true), 350);   // panel transition is 300ms
     return () => clearTimeout(t);
   }, [covered]);
 
@@ -788,12 +813,17 @@ export default function ModelViewer({
       <Canvas
         style={{ background: 'transparent' }}
         onPointerMissed={onClose}
-        frameloop={paused ? 'never' : 'always'}
+        // 'demand' renders only when something calls invalidate() — FrameThrottle
+        // below does that at a fixed rate. Animations still advance correctly
+        // because useFrame receives the real (larger) delta.
+        frameloop={throttled ? 'demand' : 'always'}
         // R3F defaults to [1, 2]; 2x on a 390x844 phone is ~1.3M pixels with
         // MSAA on top. 1.5x is a big saving at basically no visible cost.
         dpr={coarse ? [1, 1.5] : [1, 2]}
         gl={{ antialias: !coarse, powerPreference: 'high-performance' }}
       >
+        <FrameThrottle fps={throttled ? PANEL_FPS : null} />
+
         <Suspense fallback={null}>
           {/* Ambient / key — dim on purpose so the tower's own fixtures carry
               the scene, but lifted on mobile to compensate for the missing HDR

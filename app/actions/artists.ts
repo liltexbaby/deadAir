@@ -55,6 +55,24 @@ function parseContacts(raw: FormDataEntryValue | null) {
   return { success: true as const, data: result.data.filter((c) => c.email || c.url || c.name) };
 }
 
+/** Uploads a replacement portrait if one was supplied; returns its storage path. */
+async function uploadImage(formData: FormData, slug: string): Promise<string | null> {
+  const file = formData.get('image') as File | null;
+  if (!file || file.size === 0) return null;
+
+  const supabase = await createClient();
+  const ext = (file.name.split('.').pop() ?? 'png').toLowerCase();
+  // Timestamped so a replacement never collides with the cached old URL.
+  const path = `artists/${slug}-${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from('media')
+    .upload(path, file, { contentType: file.type || undefined, upsert: true });
+
+  if (error) throw new Error(`image upload failed: ${error.message}`);
+  return path;
+}
+
 function parseArtist(formData: FormData) {
   return ArtistSchema.safeParse({
     name: formData.get('name'),
@@ -83,7 +101,17 @@ export async function updateArtist(
 
   const supabase = await createClient();
 
-  const { error: artistErr } = await supabase.from('artists').update(parsed.data).eq('id', id);
+  let imagePath: string | null = null;
+  try {
+    imagePath = await uploadImage(formData, parsed.data.slug);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'image upload failed' };
+  }
+
+  const { error: artistErr } = await supabase
+    .from('artists')
+    .update({ ...parsed.data, ...(imagePath ? { image_path: imagePath } : {}) })
+    .eq('id', id);
   if (artistErr) {
     return { error: artistErr.code === '23505' ? 'that slug is already taken' : artistErr.message };
   }

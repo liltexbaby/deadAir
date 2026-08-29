@@ -13,14 +13,16 @@ export default function CatalogGrid({ releases }: { releases: ReleaseDTO[] }) {
   }
 
   return (
-    <div className="w-full">
+    <div className="@container w-full">
       {/* Grid info header */}
       <div className="mb-6 font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">
         total releases — {releases.length}
       </div>
 
-      {/* Album grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Container queries, not viewport ones: this grid lives inside a
+          half-width panel, so `lg:` was firing off a 1024px viewport and forcing
+          3 columns into a ~636px box. */}
+      <div className="grid grid-cols-1 @xs:grid-cols-2 @2xl:grid-cols-3 gap-5 @sm:gap-6">
         {releases.map((release) => (
           <AlbumCard key={release.id} release={release} />
         ))}

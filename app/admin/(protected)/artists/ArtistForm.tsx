@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import Image from 'next/image';
 import type { ActionState } from '@/app/actions/types';
 
 const ROLES = [
@@ -26,6 +27,7 @@ export interface ArtistFormValues {
   published: boolean;
   position: number;
   contacts: ContactRow[];
+  imageUrl: string | null;
 }
 
 const inputCls =
@@ -124,6 +126,31 @@ export default function ArtistForm({
             published
           </span>
         </label>
+      </div>
+
+      <div className="mt-8">
+        <span className={labelCls}>portrait</span>
+        <div className="mt-3 flex items-center gap-5">
+          {values.imageUrl && (
+            <Image
+              src={values.imageUrl}
+              alt=""
+              width={56}
+              height={56}
+              className="border border-white/15 object-cover [image-rendering:pixelated]"
+            />
+          )}
+          <input
+            id="image"
+            name="image"
+            type="file"
+            accept="image/*"
+            className="font-mono text-[10px] text-white/50 file:mr-3 file:border file:border-white/20 file:bg-transparent file:px-3 file:py-1.5 file:font-mono file:text-[10px] file:uppercase file:tracking-[0.2em] file:text-white/70 hover:file:border-white/40 file:cursor-pointer"
+          />
+        </div>
+        <p className="mt-2 font-mono text-[10px] text-white/25">
+          leave empty to keep the current image
+        </p>
       </div>
 
       <fieldset className="mt-9">

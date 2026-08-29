@@ -22,5 +22,44 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Was `Arial, Helvetica` from create-next-app, which overrode the Geist
+     variables the layout goes to the trouble of loading. */
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
+
+html {
+  /* Stop iOS inflating our deliberately small mono type in landscape. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* No rubber-band overscroll behind a full-screen canvas / panel sheet. */
+  overscroll-behavior: none;
+  /* The grey flash on tap reads as a bug over a 3D scene. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The canvas handles its own gestures; without this, a drag on the tower can
+   scroll or pinch-zoom the page instead of hitting the raycaster. */
+canvas {
+  touch-action: none;
+}
+
+/* Notch / home-indicator insets, paired with viewportFit: 'cover' in
+   app/layout.tsx.
+
+   These are variables rather than `.safe-top { padding-top: env(...) }`
+   utility classes on purpose. Tailwind v4 emits its utilities inside
+   `@layer utilities`, and unlayered CSS beats *any* layered rule regardless of
+   specificity or source order — so a plain `.safe-top` silently won over
+   `pt-5` / `py-4` on the same element and replaced the padding instead of
+   adding to it. That left every fixed element flush against the top edge
+   (the inset is 0px on desktop, so the padding vanished entirely).
+
+   Composing them into a single `calc()` at the call site keeps one
+   padding declaration per edge, so there's nothing left to collide.
+
+   The call sites inline `env()` rather than reading it through a custom
+   property here: routing it via `var(--safe-top)` adds a substitution step
+   that is not worth debugging on a device with no console, and inlining costs
+   nothing. Search for `safe-area-inset` to find them. */

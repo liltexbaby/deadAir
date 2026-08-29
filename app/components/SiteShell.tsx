@@ -13,6 +13,10 @@ import ContactPanel from './panels/ContactPanel';
 
 import type { Section } from '@/lib/sections';
 import type { SiteContent } from '@/lib/queries';
+import { useIsNarrow } from '@/lib/useCoarsePointer';
+import SceneLoader from './SceneLoader';
+import SceneErrorBoundary from './SceneErrorBoundary';
+import ClientErrorReporter from './ClientErrorReporter';
 
 /**
  * All the interactive shell: 3D scene, nav, panel state. Content arrives as a
@@ -69,28 +73,66 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   };
 
   const isPanelOpen = selectedSection !== null;
+  const isNarrow = useIsNarrow();
+
+  // Decide the model once, before the Canvas mounts. useGLTF caches by URL, so
+  // swapping it after load would refetch the whole thing; and resolving it in an
+  // effect (rather than during render) keeps SSR and first client render
+  // identical, so there's nothing for hydration to mismatch on.
+  const [modelUrl, setModelUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const small = window.matchMedia('(max-width: 639px)').matches;
+    setModelUrl(small ? '/DA.mobile.glb' : '/DA.glb');
+  }, []);
 
   return (
-    <main className="relative w-full h-screen overflow-hidden bg-[#0b0b0c]">
-      {/* 3D Model Overlay */}
+    <main className="relative w-full h-dvh overflow-hidden bg-[#0b0b0c]">
+      {/* 3D Model Overlay. Boundary is deliberately INSIDE this wrapper so a
+          WebGL failure only takes down the scene — the nav and panels above
+          keep working rather than the whole client tree unwinding. */}
       <div className="absolute inset-0 z-10">
-        <ModelViewer
-          activeSection={selectedSection}
-          hoveredSection={hoveredSection}
-          onNavigate={handleSectionClick}
-          onHover={setHoveredSection}
-          onClose={handleClose}
-        />
+        <SceneErrorBoundary>
+          {modelUrl && (
+            <ModelViewer
+              activeSection={selectedSection}
+              hoveredSection={hoveredSection}
+              onNavigate={handleSectionClick}
+              onHover={setHoveredSection}
+              onClose={handleClose}
+              modelUrl={modelUrl}
+            />
+          )}
+        </SceneErrorBoundary>
       </div>
 
-      {/* Logo + nav. The panel takes the right half, so this shifts a quarter of
-          the viewport left to stay centred in what's still visible. */}
+      <ClientErrorReporter />
+
+      <SceneLoader />
+
+      {/* Logo + nav. On desktop the panel takes the right half, so this shifts a
+          quarter of the viewport left to stay centred in what's still visible.
+          On mobile the panel is a full-width sheet that covers this entirely, so
+          the shift would only push the nav off-screen. */}
       <motion.div
-        className="fixed top-0 left-0 right-0 z-50 flex flex-col items-center gap-5 pt-7"
-        animate={{ x: isPanelOpen ? '-25vw' : 0 }}
+        className="fixed top-0 left-0 right-0 z-50 flex flex-col items-center gap-4 sm:gap-5 pt-[calc(env(safe-area-inset-top,0px)+1.75rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+2.25rem)]"
+        animate={{
+          x: isPanelOpen && !isNarrow ? '-25vw' : 0,
+          // On mobile the panel is a full-screen sheet, so a z-50 header would
+          // sit on top of its content. Desktop keeps the header visible because
+          // the panel only takes the right half.
+          opacity: isPanelOpen && isNarrow ? 0 : 1,
+        }}
+        style={{ pointerEvents: isPanelOpen && isNarrow ? 'none' : 'auto' }}
         transition={{ type: 'tween', duration: 0.3, ease: 'easeInOut' }}
       >
-        <Image src="/dA.png" alt="Dead Air" width={56} height={55} priority className="opacity-90" />
+        <Image
+          src="/dA.png"
+          alt="Dead Air"
+          width={56}
+          height={55}
+          priority
+          className="w-11 h-auto sm:w-14 opacity-90"
+        />
 
         <Navigation
           selectedSection={selectedSection}

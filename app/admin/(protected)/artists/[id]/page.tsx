@@ -75,6 +75,9 @@ export default async function EditArtist({ params }: { params: Promise<{ id: str
             published: artist.published,
             position: artist.position ?? 0,
             contacts,
+            imageUrl: artist.image_path
+              ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/media/${artist.image_path}`
+              : null,
           }}
         />
       </div>

@@ -62,10 +62,7 @@ export default function ContactPanel({ settings }: { settings: SiteSettingsDTO |
 
       {settings.credits.length > 0 && (
         <div className="mt-10 border-t border-white/10 pt-5">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">site visuals by</p>
-          <p className="mt-2 text-[11px] leading-relaxed text-white/45">
-            {settings.credits.join(' · ')}
-          </p>
+
         </div>
       )}
     </div>

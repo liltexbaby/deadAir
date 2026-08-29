@@ -31,6 +31,7 @@ export default async function NewArtist() {
             published: true,
             position: 0,
             contacts: [],
+            imageUrl: null,
           }}
         />
       </div>

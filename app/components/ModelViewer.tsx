@@ -1,11 +1,12 @@
 'use client';
 
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, useAnimations, Environment, ContactShadows } from '@react-three/drei';
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 import type { Section } from '@/lib/sections';
+import { useCoarsePointer, useIsNarrow } from '@/lib/useCoarsePointer';
 
 interface HitProxyUserData {
   section: Section;
@@ -17,6 +18,8 @@ interface HitProxyUserData {
 type PointerEvent3D = THREE.Event & {
   object: THREE.Object3D;
   stopPropagation: () => void;
+  /** R3F forwards the native pointer event, so we can tell touch from mouse. */
+  pointerType?: string;
 };
 
 /* ==========================================
@@ -27,7 +30,61 @@ type PointerEvent3D = THREE.Event & {
 
 // MODEL SETTINGS
 const MODEL_SCALE = 0.35;
-const MODEL_POSITION = [-10, -3, 0] as [number, number, number];
+// Desktop parks the tower left of centre so the right half stays clear for the
+// panel. On mobile the panel is a full-width sheet instead, so that offset just
+// pushes the tower off a narrow frustum — centre it there.
+const MODEL_POSITION = [-10, -4, 0] as [number, number, number];
+const MODEL_POSITION_MOBILE = [0, -3, 0] as [number, number, number];
+
+// CAMERA FRAMING
+// The Blender cameras were authored at 16:9. A phone in portrait is ~0.46, and
+// three.js holds *vertical* FOV constant, so the horizontal view collapses to
+// roughly 40% of the desktop framing and the tower leaves the frame. We
+// compensate by widening FOV to preserve the horizontal composition instead.
+const AUTHORED_ASPECT = 16 / 9;
+const FOV_FALLBACK = 45;   // used if a cam_* node carries no fov
+// Full horizontal compensation on a portrait phone works out at ~115deg, which
+// "fits" everything but shrinks the tower to a speck. The tower is a tall
+// subject in a tall viewport, so some horizontal crop of the surrounding scene
+// is a better trade than losing the subject — hence a firm clamp.
+const FOV_MAX = 62;
+
+// HOME FRAMING TRIM
+// cam_home's authored 44.1deg is a tight, slightly left-of-centre composition —
+// correct in Blender's 16:9 viewport, but in a browser it reads as over-zoomed
+// and off-axis. These trim the idle shot without touching the GLB, so a Blender
+// re-export can't undo them.
+//
+// HOME_DOLLY > 1 backs the camera away from the tower, so it renders smaller.
+//   This is a dolly, NOT a zoom: widening the lens instead would shrink the
+//   tower too, but it also drove FOV into the FOV_MAX clamp on desktop and gave
+//   everything off-axis a wide-angle stretch — the beacon sphere visibly ovalled.
+//   Moving the camera back keeps the authored lens and its perspective intact.
+// HOME_PAN_X > 0 slides the tower right, as a fraction of viewport width.
+// HOME_PAN_Y > 0 slides it down, as a fraction of viewport height. Both shots
+//   leave dead space under the base while the nav sits on the radio waves, so a
+//   small drop buys clearance at the top for free.
+//
+// Values are measured off screenshots against the beacon (the tower's visual
+// axis), not guessed — re-measure there if the Blender cameras ever move.
+//
+// Applied ONLY to the idle/home shot. The six section cameras keep their
+// authored framing, and the rig eases between the two so entering a section
+// doesn't pop.
+const HOME_DOLLY = 1.5;
+const HOME_PAN_X = 0.020;
+const HOME_PAN_Y = 0.05;
+// The six section shots are authored at 22.9deg — very tight close-ups that
+// read as too close in a browser for the same reason cam_home did. They get the
+// same pull-back so entering a section stays proportional to the idle shot.
+const SECTION_DOLLY = 1.35;
+// Portrait already hits the FOV_MAX clamp, which frames everything much wider
+// than authored on its own (a 22.9deg section shot renders at 62deg there), so
+// a further pull-back would push the subject away. Shift only on a phone.
+const HOME_DOLLY_NARROW = 1.0;
+const SECTION_DOLLY_NARROW = 1.0;
+const HOME_PAN_X_NARROW = 0.063;
+const HOME_PAN_Y_NARROW = 0.05;
 
 // LIGHTING SETTINGS — dusk / overcast.
 // Kept deliberately dim: the tower's own fixtures below are meant to read as
@@ -37,8 +94,21 @@ const AMBIENT_COLOR = '#8fa3b0';        // cool overcast fill
 const KEY_LIGHT_INTENSITY = 0.55;
 const KEY_LIGHT_COLOR = '#b9c7d2';      // weak, low sun
 const KEY_LIGHT_POSITION = [10, 15, 10] as [number, number, number];
-const ENVIRONMENT_PRESET = 'dawn';      // swap for 'city' / 'sunset' / 'night' to retune
+// Self-hosted copy of drei's 'dawn' preset (kiara_1_dawn_1k.hdr). Served from
+// our own domain instead of raw.githack.com — see scripts/fetch-hdr.sh.
+const ENVIRONMENT_FILE = '/hdr/kiara_1_dawn_1k.hdr';
 const ENVIRONMENT_INTENSITY = 0.35;
+// Stand-in for the HDR on touch devices, where the 1.5MB download and the PMREM
+// convolution pass aren't worth it. Intensity is deliberately much higher than
+// the HDR's 0.35: an image-based environment lights from every direction at
+// once, so a single hemisphere needs to be far stronger to avoid the model
+// reading as a black silhouette.
+const ENV_FALLBACK_SKY = '#9fb3c2';
+const ENV_FALLBACK_GROUND = '#3a332c';
+const ENV_FALLBACK_INTENSITY = 1.6;
+// Matching lift for the flat ambient fill on mobile.
+const AMBIENT_LIGHT_MOBILE = 0.5;
+const KEY_LIGHT_INTENSITY_MOBILE = 0.9;
 
 // SHADOW SETTINGS
 const SHADOW_OPACITY = 0.55;
@@ -124,7 +194,10 @@ const WAVES_FRAG = /* glsl */ `
     vec2 d = vUv - 0.5;
     float len = length(d);
     float r = len * 2.0;
-    if (r > 1.0) discard;
+    // Fade to alpha 0 rather than discarding: discard disables early-Z on the
+    // tile-based GPUs in every phone, and DoubleSide already rasterises this
+    // disc twice.
+    float inDisc = step(r, 1.0);
 
     // Each band marches outward; fract() makes them repeat, and the smoothstep
     // gives a sharp leading edge with a soft trailing tail. uThickness sets how
@@ -146,8 +219,7 @@ const WAVES_FRAG = /* glsl */ `
     float radial = smoothstep(uInner, uInner + 0.15, r) *
                    (1.0 - smoothstep(uOuter - 0.45, uOuter, r));
 
-    float alpha = ring * lobe * radial * uOpacity;
-    if (alpha < 0.01) discard;
+    float alpha = ring * lobe * radial * uOpacity * inDisc;
     gl_FragColor = vec4(uColor, alpha);
   }
 `;
@@ -162,20 +234,123 @@ const targetPos = new THREE.Vector3();
 const targetQuat = new THREE.Quaternion();
 const hoverPos = new THREE.Vector3();
 const hoverQuat = new THREE.Quaternion();
+const subjectPos = new THREE.Vector3();
+const back = new THREE.Vector3();
 
 interface CameraRigProps {
   scene: THREE.Object3D;
   active: Section | null;
   hovered: Section | null;
+  narrow: boolean;
 }
 
-function CameraRig({ scene, active, hovered }: CameraRigProps) {
-  useFrame((state, dt) => {
-    const target = scene.getObjectByName(active ? `cam_${active}` : 'cam_home');
-    if (!target) return;
+/**
+ * Widen the authored FOV so the *horizontal* framing survives a narrow viewport.
+ *
+ * A perspective camera holds vertical FOV fixed, so as aspect shrinks the
+ * horizontal field shrinks with it. These shots were composed at 16:9; on a
+ * portrait phone that means seeing ~40% of the intended width. Scaling by
+ * (authored aspect / actual aspect) keeps the horizontal extent constant, which
+ * is the dimension the compositions actually depend on.
+ */
+function fitFov(authoredFovDeg: number, aspect: number): number {
+  if (aspect >= AUTHORED_ASPECT) return authoredFovDeg;
+  const half = THREE.MathUtils.degToRad(authoredFovDeg) / 2;
+  const widened = 2 * Math.atan(Math.tan(half) * (AUTHORED_ASPECT / aspect));
+  return Math.min(THREE.MathUtils.radToDeg(widened), FOV_MAX);
+}
 
-    target.getWorldPosition(targetPos);
-    target.getWorldQuaternion(targetQuat);
+/**
+ * Resolve a shot into the shared `targetPos` / `targetQuat` temporaries and
+ * return the FOV it was authored with, or null if the camera node is missing.
+ *
+ * Shared by the frame loop and the mount-time snap so both place the camera by
+ * exactly the same rules — the two drifting apart is what a "settles into
+ * position after load" bug looks like.
+ */
+function resolveShot(
+  scene: THREE.Object3D,
+  active: Section | null,
+  narrow: boolean,
+): number | null {
+  const target = scene.getObjectByName(active ? `cam_${active}` : 'cam_home');
+  if (!target) return null;
+
+  // getWorldPosition/Quaternion update ancestor matrices themselves, so these
+  // are correct even on the very first frame, before anything has rendered.
+  target.getWorldPosition(targetPos);
+  target.getWorldQuaternion(targetQuat);
+
+  // Back the camera off along its own view axis. Distance is scaled by how far
+  // the shot already sits from what it is pointed at, so the trim is a constant
+  // proportion rather than a fixed world offset that a re-export could
+  // invalidate.
+  //
+  // The reference has to be the shot's own subject, not the model as a whole: a
+  // section close-up sits metres from its subject but much further from the
+  // model origin, so measuring against the origin over-scales the pull-back and
+  // drags foreground geometry (guy-wires) into frame. The hit_* proxies already
+  // mark exactly what each shot is framing.
+  const home = !active;
+  const dolly = narrow
+    ? (home ? HOME_DOLLY_NARROW : SECTION_DOLLY_NARROW)
+    : (home ? HOME_DOLLY : SECTION_DOLLY);
+  if (dolly !== 1) {
+    const subject = (active && scene.getObjectByName(`hit_${active}`)) || scene;
+    subject.getWorldPosition(subjectPos);
+    const dist = targetPos.distanceTo(subjectPos);
+    // Local +Z is behind a three.js camera (they look down -Z).
+    back.set(0, 0, 1).applyQuaternion(targetQuat);
+    targetPos.addScaledVector(back, dist * (dolly - 1));
+  }
+
+  // The GLB carries the FOV each shot was framed with (cam_home 44.1deg, the
+  // section cameras 22.9deg). Previously all of this was discarded and
+  // everything rendered at R3F's default 75deg.
+  return target instanceof THREE.PerspectiveCamera ? target.fov : FOV_FALLBACK;
+}
+
+function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
+  // Eased framing state. fov starts at -1 so the first frame always counts as
+  // dirty and the view offset gets applied before anything is presented.
+  const framing = useRef({ fov: -1, panX: 0, panY: 0, w: 0, h: 0 });
+  const camera = useThree((s) => s.camera);
+
+  // Place the camera during commit, before the browser paints.
+  //
+  // Without this the Canvas mounts with R3F's default camera at the origin and
+  // renders at least one frame there — the tower flashes in off to the left and
+  // then slides into place as the rig eases it in. Suspense makes that worse:
+  // the scene commits the moment the GLB resolves, which can paint before the
+  // first useFrame ever runs. Snapping here means the first thing on screen is
+  // already the home framing.
+  useLayoutEffect(() => {
+    const authored = resolveShot(scene, null, narrow);
+    if (authored === null) return;
+    const cam = camera as THREE.PerspectiveCamera;
+    cam.position.copy(targetPos);
+    cam.quaternion.copy(targetQuat);
+    framing.current.fov = -1;   // force the frame loop to adopt, not ease
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, camera]);
+
+  useFrame((state, dt) => {
+    const cam = state.camera as THREE.PerspectiveCamera;
+    const authored = resolveShot(scene, active, narrow);
+    if (authored === null) return;
+
+    // Derive aspect from the drawing surface rather than reading cam.aspect,
+    // which we overwrite below and which must never feed back into itself.
+    const { width: w, height: h } = state.size;
+
+    // Only the idle shot gets the lens shift; section shots stay centred.
+    const home = !active;
+    const targetFov = fitFov(authored, w / h);
+    const targetPanX = home ? (narrow ? HOME_PAN_X_NARROW : HOME_PAN_X) : 0;
+    const targetPanY = home ? (narrow ? HOME_PAN_Y_NARROW : HOME_PAN_Y) : 0;
+
+    const f = framing.current;
+    const firstFrame = f.fov < 0;
 
     // Lean a fraction of the way toward a hovered section to signal it's
     // clickable. Only while idle — once a section is active the rig owns the
@@ -191,8 +366,62 @@ function CameraRig({ scene, active, hovered }: CameraRigProps) {
     }
 
     const k = 1 - Math.pow(0.001, dt);
-    state.camera.position.lerp(targetPos, k);
-    state.camera.quaternion.slerp(targetQuat, k);
+    if (firstFrame) {
+      // Adopt outright rather than easing in from wherever the camera happens
+      // to be — easing on frame one is the visible "slides in from the left".
+      cam.position.copy(targetPos);
+      cam.quaternion.copy(targetQuat);
+    } else {
+      cam.position.lerp(targetPos, k);
+      cam.quaternion.slerp(targetQuat, k);
+    }
+
+    // Ease fov and lens shift alongside position so section transitions neither
+    // snap-zoom nor jump sideways.
+    let dirty = false;
+
+    if (firstFrame) {
+      f.fov = targetFov;
+      f.panX = targetPanX;
+      f.panY = targetPanY;
+      dirty = true;
+    }
+    if (Math.abs(f.fov - targetFov) > 0.01) {
+      f.fov += (targetFov - f.fov) * k;
+      dirty = true;
+    }
+    if (Math.abs(f.panX - targetPanX) > 0.0002) {
+      f.panX += (targetPanX - f.panX) * k;
+      dirty = true;
+    }
+    if (Math.abs(f.panY - targetPanY) > 0.0002) {
+      f.panY += (targetPanY - f.panY) * k;
+      dirty = true;
+    }
+
+    if (dirty || w !== f.w || h !== f.h) {
+      f.w = w;
+      f.h = h;
+      cam.fov = f.fov;
+      // Lens shift rather than a dolly: setViewOffset skews the frustum, so the
+      // tower slides across the frame without moving the camera or changing the
+      // perspective the shot was composed with.
+      //
+      // These MUST be the real pixel dimensions, not normalised fractions:
+      // setViewOffset assigns `camera.aspect = fullWidth / fullHeight`
+      // internally. Passing a 1x1 "full image" therefore pins aspect to 1.0 and
+      // non-uniformly scales the whole scene — stretching a landscape viewport
+      // horizontally and squashing a portrait one. Hence also the resize check
+      // above: a stale fullWidth/fullHeight is a wrong aspect, not just a
+      // stale offset.
+      if (Math.abs(f.panX) < 0.0002 && Math.abs(f.panY) < 0.0002) {
+        cam.clearViewOffset();   // also calls updateProjectionMatrix
+        cam.aspect = w / h;      // clearViewOffset leaves aspect as-is
+      } else {
+        cam.setViewOffset(w, h, -f.panX * w, -f.panY * h, w, h);
+      }
+      cam.updateProjectionMatrix();
+    }
   });
 
   return null;
@@ -206,14 +435,26 @@ interface AttachedLight {
   glow: { material: THREE.MeshStandardMaterial; base: number }[];
 }
 
-function PracticalLights({ scene }: { scene: THREE.Object3D }) {
+function PracticalLights({
+  scene,
+  reduced = false,
+}: {
+  scene: THREE.Object3D;
+  reduced?: boolean;
+}) {
   const attached = useRef<AttachedLight[]>([]);
 
   useLayoutEffect(() => {
     const created: AttachedLight[] = [];
     const restore: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }[] = [];
 
-    FIXTURES.forEach((fixture) => {
+    // Seven dynamic point lights across 33 materials is the classic mobile-GPU
+    // killer — every extra light multiplies the per-fragment lighting loop. On
+    // touch we keep only the beacon, which is the one that actually reads.
+    // Emissive glow is unaffected, so the other fixtures still look lit.
+    const fixtures = reduced ? FIXTURES.filter((f) => f.behavior === 'beacon') : FIXTURES;
+
+    fixtures.forEach((fixture) => {
       fixture.names.forEach((name) => {
         // GLTFLoader runs node names through PropertyBinding.sanitizeNodeName,
         // which strips dots — "Cube.050" in Blender becomes "Cube050" here.
@@ -273,7 +514,9 @@ function PracticalLights({ scene }: { scene: THREE.Object3D }) {
       restore.forEach(({ mesh, material }) => { mesh.material = material; });
       attached.current = [];
     };
-  }, [scene]);
+    // `reduced` resolves from a media query after mount, so the light set has to
+    // rebuild when it flips.
+  }, [scene, reduced]);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
@@ -362,12 +605,15 @@ interface SceneProps {
   hoveredSection: Section | null;
   onNavigate: (section: Section) => void;
   onHover: (section: Section | null) => void;
+  modelUrl: string;
 }
 
-function Scene({ activeSection, hoveredSection, onNavigate, onHover }: SceneProps) {
+function Scene({ activeSection, hoveredSection, onNavigate, onHover, modelUrl }: SceneProps) {
   const group = useRef<THREE.Group>(null);
   const [hovered, setHovered] = useState<Section | null>(null);
   const releaseTimer = useRef<number | null>(null);
+  const coarse = useCoarsePointer();
+  const isNarrow = useIsNarrow();
 
   // Publish 3D hover upward so the nav labels light up in step with the tower.
   // Held in a ref so a re-created callback can't retrigger the effect.
@@ -376,7 +622,7 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover }: SceneProp
   useEffect(() => {
     onHoverRef.current(hovered);
   }, [hovered]);
-  const { scene, animations } = useGLTF('/DA.glb');
+  const { scene, animations } = useGLTF(modelUrl);
   // useGLTF caches by URL, so `animations` is a stable reference across
   // re-renders — this trims the duplicate loop-point frame exactly once.
   useMemo(() => {
@@ -421,6 +667,10 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover }: SceneProp
     e.stopPropagation();
     const { section } = e.object.userData as Partial<HitProxyUserData>;
     if (!section) return;
+
+    // Touch has no hover state to preserve, and the guard below would strand it.
+    if (e.pointerType === 'touch') return;
+
     if (releaseTimer.current !== null) {
       clearTimeout(releaseTimer.current);
       releaseTimer.current = null;
@@ -429,7 +679,15 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover }: SceneProp
     setHovered(section);
   };
 
-  const handleOut = () => {
+  const handleOut = (e?: PointerEvent3D) => {
+    // A tap fires pointerover -> down -> up -> out with no pointermove in
+    // between, so the stationary-cursor guard below would never release and
+    // hover stuck forever on touch — leaving the camera leaning and a nav label
+    // lit. Touch exits are always honoured.
+    if (e?.pointerType === 'touch') {
+      setHovered(null);
+      return;
+    }
     if (!pointerMoved.current) return;
     if (releaseTimer.current !== null) clearTimeout(releaseTimer.current);
     releaseTimer.current = window.setTimeout(() => {
@@ -451,7 +709,11 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover }: SceneProp
 
   return (
     <>
-      <group ref={group} position={MODEL_POSITION} scale={MODEL_SCALE}>
+      <group
+        ref={group}
+        position={isNarrow ? MODEL_POSITION_MOBILE : MODEL_POSITION}
+        scale={MODEL_SCALE}
+      >
         <primitive
           object={scene}
           onPointerOver={handleOver}
@@ -463,11 +725,17 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover }: SceneProp
           }}
         />
       </group>
-      <PracticalLights scene={scene} />
+      <PracticalLights scene={scene} reduced={coarse} />
       <RadioWaves scene={scene} />
       {/* Driven by the shared hover state, so pointing at a nav label leans the
-          camera exactly as pointing at the tower itself does. */}
-      <CameraRig scene={scene} active={activeSection} hovered={hoveredSection} />
+          camera exactly as pointing at the tower itself does. The lean is a
+          mouse affordance, so it's suppressed on touch. */}
+      <CameraRig
+        scene={scene}
+        active={activeSection}
+        hovered={coarse ? null : hoveredSection}
+        narrow={isNarrow}
+      />
     </>
   );
 }
@@ -478,6 +746,7 @@ interface ModelViewerProps {
   onNavigate: (section: Section) => void;
   onHover: (section: Section | null) => void;
   onClose: () => void;
+  modelUrl: string;
 }
 
 export default function ModelViewer({
@@ -486,21 +755,46 @@ export default function ModelViewer({
   onNavigate,
   onHover,
   onClose,
+  modelUrl,
 }: ModelViewerProps) {
+  const coarse = useCoarsePointer();
+
   return (
-    <div className="w-full h-screen">
+    <div className="w-full h-dvh">
       <Canvas
         style={{ background: 'transparent' }}
         onPointerMissed={onClose}
+        // R3F defaults to [1, 2]; 2x on a 390x844 phone is ~1.3M pixels with
+        // MSAA on top. 1.5x is a big saving at basically no visible cost.
+        dpr={coarse ? [1, 1.5] : [1, 2]}
+        gl={{ antialias: !coarse, powerPreference: 'high-performance' }}
       >
         <Suspense fallback={null}>
-          {/* Ambient / key — dim on purpose so the tower's own fixtures carry the scene */}
-          <ambientLight intensity={AMBIENT_LIGHT} color={AMBIENT_COLOR} />
+          {/* Ambient / key — dim on purpose so the tower's own fixtures carry
+              the scene, but lifted on mobile to compensate for the missing HDR
+              and the reduced practical lights. */}
+          <ambientLight
+            intensity={coarse ? AMBIENT_LIGHT_MOBILE : AMBIENT_LIGHT}
+            color={AMBIENT_COLOR}
+          />
           <directionalLight
             position={KEY_LIGHT_POSITION}
-            intensity={KEY_LIGHT_INTENSITY}
+            intensity={coarse ? KEY_LIGHT_INTENSITY_MOBILE : KEY_LIGHT_INTENSITY}
             color={KEY_LIGHT_COLOR}
           />
+
+          {/* Environment for reflections.
+              Self-hosted: drei's `preset` fetches ~1.5MB of HDR from
+              raw.githack.com at runtime — a dev CDN, not production infra.
+              Skipped entirely on touch, where a hemisphere light stands in for
+              a fraction of the cost and payload. */}
+          {coarse ? (
+            <hemisphereLight
+              args={[ENV_FALLBACK_SKY, ENV_FALLBACK_GROUND, ENV_FALLBACK_INTENSITY]}
+            />
+          ) : (
+            <Environment files={ENVIRONMENT_FILE} environmentIntensity={ENVIRONMENT_INTENSITY} />
+          )}
 
           {/* 3D Model + camera rig */}
           <Scene
@@ -508,13 +802,15 @@ export default function ModelViewer({
             hoveredSection={hoveredSection}
             onNavigate={onNavigate}
             onHover={onHover}
+            modelUrl={modelUrl}
           />
 
-          {/* Environment for reflections */}
-          <Environment preset={ENVIRONMENT_PRESET} environmentIntensity={ENVIRONMENT_INTENSITY} />
-
-          {/* Ground shadow */}
+          {/* Ground shadow. drei defaults to frames={Infinity}, which re-renders
+              the scene into a 512² depth target plus four blur passes EVERY
+              frame, forever. The tower's base never moves, so one pass is
+              enough — this is the single cheapest perf win in the file. */}
           <ContactShadows
+            frames={1}
             position={[0, 0, 0]}
             opacity={SHADOW_OPACITY}
             scale={15}

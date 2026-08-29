@@ -22,6 +22,7 @@ export interface ManagedArtistDTO {
   id: string;
   name: string;
   externalLabel: string | null;
+  imageUrl: string | null;
   contacts: { role: string; label: string; name: string | null; email: string | null; url: string | null }[];
 }
 
@@ -120,7 +121,7 @@ export async function getManagedArtists(): Promise<ManagedArtistDTO[]> {
   const supabase = createPublicClient();
   const { data, error } = await supabase
     .from('artists')
-    .select('id, name, external_label, artist_contacts(role, name, email, url, position)')
+    .select('id, name, external_label, image_path, artist_contacts(role, name, email, url, position)')
     .eq('is_managed', true)
     .eq('published', true)
     .order('position', { ascending: true });
@@ -131,6 +132,7 @@ export async function getManagedArtists(): Promise<ManagedArtistDTO[]> {
     id: row.id,
     name: row.name,
     externalLabel: row.external_label,
+    imageUrl: mediaUrl(row.image_path),
     contacts: ((row.artist_contacts ?? []) as {
       role: string;
       name: string | null;

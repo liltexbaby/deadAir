@@ -1,7 +1,5 @@
 'use client';
 
-import { motion } from 'framer-motion';
-
 import { SECTIONS, type Section } from '@/lib/sections';
 
 interface NavigationProps {
@@ -19,7 +17,10 @@ export default function Navigation({
   onSectionHover,
 }: NavigationProps) {
   return (
-    <nav className="flex items-center justify-center gap-7">
+    // 6 items at 11px with 0.2em tracking plus gap-7 needs ~439px; an iPhone 14
+    // is 390px. Wrapping (rather than scrolling) keeps every section reachable
+    // without a hidden-overflow gesture nobody would discover.
+    <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:gap-x-7 px-3">
       {SECTIONS.map((section) => {
         const isSelected = selectedSection === section;
         // hoveredSection is also set by the 3D tower, so pointing at a hit proxy
@@ -34,8 +35,8 @@ export default function Navigation({
             onMouseEnter={() => onSectionHover(section)}
             onMouseLeave={() => onSectionHover(null)}
             className={`
-              relative font-mono text-[11px] uppercase tracking-[0.2em]
-              transition-all duration-200 cursor-pointer
+              relative font-mono text-[11px] uppercase tracking-[0.15em] sm:tracking-[0.2em]
+              py-2.5 sm:py-0 transition-all duration-200 cursor-pointer
               ${isSelected ? 'text-white font-bold' : isHovered ? 'text-white/70' : 'text-white/45'}
             `}
           >
@@ -59,14 +60,19 @@ export default function Navigation({
               ]
             </span>
 
-            {isActive && (
-              <motion.span
-                aria-hidden
-                layoutId="nav-glow"
-                transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-                className="absolute -inset-x-3 -inset-y-1 -z-10 bg-white/[0.06]"
-              />
-            )}
+            {/* Always mounted, toggled by opacity.
+                This used to be a `layoutId` shared-layout element rendered only
+                while active. That makes framer animate the box *between*
+                buttons, and on the first hover there is no previous position to
+                travel from — so it flew in from the far left of the viewport.
+                A plain fade has no origin to get wrong: the box only ever
+                appears where it already is. */}
+            <span
+              aria-hidden
+              className={`absolute -inset-x-3 -inset-y-1 -z-10 bg-white/[0.06] transition-opacity duration-200 ${
+                isActive ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
           </button>
         );
       })}

@@ -10,7 +10,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "glb:build": "./scripts/build-glb.sh",
+    "glb:verify": "node scripts/verify-glb.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

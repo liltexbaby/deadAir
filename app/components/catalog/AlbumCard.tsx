@@ -4,21 +4,34 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import Image from 'next/image';
 import type { ReleaseDTO } from '@/lib/queries';
+import { useCoarsePointer } from '@/lib/useCoarsePointer';
 
 export default function AlbumCard({ release }: { release: ReleaseDTO }) {
   const [isHovered, setIsHovered] = useState(false);
+  const coarse = useCoarsePointer();
+
+  // Tailwind v4 wraps every `hover:` utility in @media (hover: hover), and this
+  // overlay was gated on mouse events alone — so on a phone the Spotify/Apple
+  // links were unreachable entirely. That's lost content, not lost polish.
+  // On touch the artwork toggles the overlay instead.
+  const showLinks = isHovered && release.links.length > 0;
 
   return (
     <motion.div
       className="relative group"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => !coarse && setIsHovered(true)}
+      onMouseLeave={() => !coarse && setIsHovered(false)}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
       {/* Album art container */}
-      <div className="aspect-square relative border border-white/15 bg-white/[0.03] overflow-hidden">
+      <div
+        className="aspect-square relative border border-white/15 bg-white/[0.03] overflow-hidden"
+        onClick={() => coarse && setIsHovered((v) => !v)}
+        role={coarse && release.links.length > 0 ? 'button' : undefined}
+        aria-label={coarse && release.links.length > 0 ? `Show links for ${release.title}` : undefined}
+      >
         {release.coverUrl ? (
           <Image
             src={release.coverUrl}
@@ -35,7 +48,7 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
 
         {/* Hover overlay with streaming links. Built from the links array, so a
             release with only Spotify simply shows one row. */}
-        {isHovered && release.links.length > 0 && (
+        {showLinks && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

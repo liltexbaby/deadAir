@@ -1,41 +1,57 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 /**
- * True on touch-first devices.
+ * Media queries as a shared external store.
  *
- * Starts false so server and first client render agree — flipping it in an
- * effect avoids a hydration mismatch. Anything gated on this must therefore
- * degrade gracefully for one frame.
+ * These were `useState` + `useEffect` that called `setState` in the effect body.
+ * That is one MediaQueryList, one listener and one extra render pass *per
+ * component instance* — and CatalogGrid mounts 25 AlbumCards at once, each of
+ * which calls useCoarsePointer. Opening the catalog therefore created 25
+ * matchMedia objects and 25 cascading re-renders of framer-motion components in
+ * a single commit, right as the panel finished sliding in.
+ *
+ * useSyncExternalStore shares one MediaQueryList per query across every
+ * consumer, and reads the value during render rather than after mount — so
+ * there is no post-mount state flip to re-render for. The server snapshot is
+ * `false`, matching the old starting value, so SSR output is unchanged and
+ * there is still nothing for hydration to mismatch on.
  */
-export function useCoarsePointer(): boolean {
-  const [coarse, setCoarse] = useState(false);
+const lists = new Map<string, MediaQueryList>();
 
-  useEffect(() => {
-    const mq = window.matchMedia('(pointer: coarse)');
-    setCoarse(mq.matches);
-
-    const onChange = (e: MediaQueryListEvent) => setCoarse(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-
-  return coarse;
+function list(query: string): MediaQueryList {
+  let mql = lists.get(query);
+  if (!mql) {
+    mql = window.matchMedia(query);
+    lists.set(query, mql);
+  }
+  return mql;
 }
 
-/** Matches Tailwind's `sm` breakpoint (640px) so CSS and JS agree. */
+function subscriber(query: string) {
+  return (onChange: () => void) => {
+    const mql = list(query);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  };
+}
+
+// Hoisted so the identities stay stable across renders.
+const COARSE = '(pointer: coarse)';
+const NARROW = '(max-width: 639px)';        // matches Tailwind's `sm`, so CSS and JS agree
+const subscribeCoarse = subscriber(COARSE);
+const subscribeNarrow = subscriber(NARROW);
+const getCoarse = () => list(COARSE).matches;
+const getNarrow = () => list(NARROW).matches;
+const getServerFalse = () => false;
+
+/** True on touch-first devices. */
+export function useCoarsePointer(): boolean {
+  return useSyncExternalStore(subscribeCoarse, getCoarse, getServerFalse);
+}
+
+/** True below Tailwind's `sm` breakpoint (640px). */
 export function useIsNarrow(): boolean {
-  const [narrow, setNarrow] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 639px)');
-    setNarrow(mq.matches);
-
-    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-
-  return narrow;
+  return useSyncExternalStore(subscribeNarrow, getNarrow, getServerFalse);
 }

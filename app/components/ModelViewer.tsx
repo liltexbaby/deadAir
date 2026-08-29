@@ -758,12 +758,37 @@ export default function ModelViewer({
   modelUrl,
 }: ModelViewerProps) {
   const coarse = useCoarsePointer();
+  const isNarrow = useIsNarrow();
+
+  // Stop rendering once a panel has fully covered the canvas.
+  //
+  // On mobile the panel is a full-screen sheet, so every frame drawn behind it
+  // is invisible — and worse, the panel's backdrop-blur has to re-blur the
+  // whole viewport each time the canvas repaints. Freezing the loop removes the
+  // scene render AND turns that blur into a static one the compositor can cache.
+  // Desktop keeps rendering: there the panel is a half-width column and the
+  // tower stays on screen.
+  //
+  // Deferred by the length of the panel's slide so the tower doesn't visibly
+  // freeze while it's still partly visible.
+  const covered = isNarrow && activeSection !== null;
+  const [paused, setPaused] = useState(false);
+  // Resuming has to be immediate, and adjusting state during render is React's
+  // sanctioned way to do that — an effect would leave one frozen frame visible
+  // as the panel slides away.
+  if (!covered && paused) setPaused(false);
+  useEffect(() => {
+    if (!covered) return;
+    const t = setTimeout(() => setPaused(true), 350);   // panel transition is 300ms
+    return () => clearTimeout(t);
+  }, [covered]);
 
   return (
     <div className="w-full h-dvh">
       <Canvas
         style={{ background: 'transparent' }}
         onPointerMissed={onClose}
+        frameloop={paused ? 'never' : 'always'}
         // R3F defaults to [1, 2]; 2x on a 390x844 phone is ~1.3M pixels with
         // MSAA on top. 1.5x is a big saving at basically no visible cost.
         dpr={coarse ? [1, 1.5] : [1, 2]}

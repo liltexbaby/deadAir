@@ -21,7 +21,11 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
       className="relative group"
       onMouseEnter={() => !coarse && setIsHovered(true)}
       onMouseLeave={() => !coarse && setIsHovered(false)}
-      initial={{ opacity: 0, y: 20 }}
+      // No entrance animation on touch. All 25 cards mount in one commit, so on
+      // a phone this fired 25 simultaneous framer animations at exactly the
+      // moment the panel finished sliding in — the frame budget is already
+      // spent on the slide itself and the panel's full-screen backdrop blur.
+      initial={coarse ? false : { opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >

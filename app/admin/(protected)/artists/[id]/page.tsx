@@ -72,6 +72,10 @@ export default async function EditArtist({ params }: { params: Promise<{ id: str
             slug: artist.slug ?? '',
             external_label: artist.external_label ?? '',
             is_managed: artist.is_managed,
+            // `?? ` covers a database where migration 0002 hasn't run yet.
+            is_publishing: artist.is_publishing ?? false,
+            email_subject: artist.email_subject ?? '',
+            email_body: artist.email_body ?? '',
             published: artist.published,
             position: artist.position ?? 0,
             contacts,

@@ -39,13 +39,13 @@ export default class SceneErrorBoundary extends Component<
     return (
       <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
         <div className="max-w-sm text-center pointer-events-auto">
-          <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-white/40">
+          <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-black/40">
             3d scene unavailable
           </p>
-          <p className="mt-3 font-mono text-[10px] leading-relaxed text-white/30 break-words">
+          <p className="mt-3 font-mono text-[10px] leading-relaxed text-black/30 break-words">
             {this.state.error.message || String(this.state.error)}
           </p>
-          <p className="mt-4 font-mono text-[10px] text-white/25">
+          <p className="mt-4 font-mono text-[10px] text-black/25">
             the rest of the site still works — use the menu above
           </p>
         </div>

@@ -24,15 +24,15 @@ export default function SceneLoader() {
           className="fixed inset-0 z-40 flex items-end justify-center pb-[18vh] pointer-events-none"
         >
           <div className="flex flex-col items-center gap-3">
-            <div className="h-px w-32 sm:w-40 bg-white/15 overflow-hidden">
+            <div className="h-px w-32 sm:w-40 bg-black/15 overflow-hidden">
               <motion.div
-                className="h-full bg-white/70"
+                className="h-full bg-black/70"
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
                 transition={{ ease: 'easeOut', duration: 0.3 }}
               />
             </div>
-            <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-white/40 tabular-nums">
+            <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-black/40 tabular-nums">
               {Math.round(progress)}%
             </span>
           </div>

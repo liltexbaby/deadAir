@@ -24,6 +24,9 @@ export interface ArtistFormValues {
   slug: string;
   external_label: string;
   is_managed: boolean;
+  is_publishing: boolean;
+  email_subject: string;
+  email_body: string;
   published: boolean;
   position: number;
   contacts: ContactRow[];
@@ -118,6 +121,18 @@ export default function ArtistForm({
         <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
+            name="is_publishing"
+            defaultChecked={values.is_publishing}
+            className="accent-white/80"
+          />
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/50">
+            publishing client — show on the publishing panel (no emails shown)
+          </span>
+        </label>
+
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
             name="published"
             defaultChecked={values.published}
             className="accent-white/80"
@@ -151,6 +166,35 @@ export default function ArtistForm({
         <p className="mt-2 font-mono text-[10px] text-white/25">
           leave empty to keep the current image
         </p>
+      </div>
+
+      <div className="mt-9">
+        <span className={labelCls}>email prompt — mgmt panel</span>
+        <p className="mt-2 font-mono text-[10px] leading-relaxed text-white/25">
+          pre-filled when a visitor clicks one of this artist&apos;s emails. {'{artist}'} becomes the
+          artist&apos;s name. leave the subject empty for the default &ldquo;mgmt inquiry — name&rdquo;.
+        </p>
+        <label htmlFor="email_subject" className="mt-4 block font-mono text-[10px] text-white/30">
+          subject
+        </label>
+        <input
+          id="email_subject"
+          name="email_subject"
+          defaultValue={values.email_subject}
+          placeholder="e.g. Booking request — {artist}"
+          className={`${inputCls} placeholder:text-white/15`}
+        />
+        <label htmlFor="email_body" className="mt-4 block font-mono text-[10px] text-white/30">
+          body
+        </label>
+        <textarea
+          id="email_body"
+          name="email_body"
+          rows={4}
+          defaultValue={values.email_body}
+          placeholder={'e.g. Hi — reaching out about {artist}.\n\nEvent / date:\nCity:\nBudget:'}
+          className={`${inputCls} resize-y placeholder:text-white/15`}
+        />
       </div>
 
       <fieldset className="mt-9">

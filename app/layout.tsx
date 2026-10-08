@@ -24,7 +24,8 @@ export const viewport: Viewport = {
   // Lets the fixed header sit under the notch and reach the screen edges; the
   // safe-area insets in globals.css keep content clear of it.
   viewportFit: "cover",
-  themeColor: "#0b0b0c",
+  // Matches the sky tone at the top of public/foggy-street.jpg.
+  themeColor: "#cccccf",
   // Deliberately NOT setting maximumScale/userScalable — blocking pinch-zoom is
   // an accessibility regression.
 };

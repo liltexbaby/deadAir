@@ -24,6 +24,9 @@ export interface ManagedArtistDTO {
   externalLabel: string | null;
   imageUrl: string | null;
   contacts: { role: string; label: string; name: string | null; email: string | null; url: string | null }[];
+  /** Pre-filled mail for this artist's contact links; null = site default. */
+  emailSubject: string | null;
+  emailBody: string | null;
 }
 
 export interface EventDTO {
@@ -52,6 +55,8 @@ export interface SiteSettingsDTO {
 export interface SiteContent {
   releases: ReleaseDTO[];
   managedArtists: ManagedArtistDTO[];
+  /** PUBLISHING panel. Same shape; the panel just doesn't show contacts. */
+  publishingArtists: ManagedArtistDTO[];
   events: EventDTO[];
   settings: SiteSettingsDTO | null;
 }
@@ -117,29 +122,46 @@ export async function getReleases(): Promise<ReleaseDTO[]> {
   });
 }
 
-export async function getManagedArtists(): Promise<ManagedArtistDTO[]> {
+interface ArtistRow {
+  id: string;
+  name: string;
+  external_label: string | null;
+  image_path: string | null;
+  is_managed: boolean;
+  // Added by migration 0002 — absent until it runs, hence optional.
+  is_publishing?: boolean;
+  email_subject?: string | null;
+  email_body?: string | null;
+  artist_contacts: { role: string; name: string | null; email: string | null; url: string | null; position: number }[] | null;
+}
+
+/**
+ * Both rosters in one query. `artists(*)` plus in-code filtering rather than
+ * naming the new columns or filtering on is_publishing server-side: that way
+ * this keeps working on a database where migration 0002 hasn't been run yet
+ * (the PUBLISHING panel is just empty and prompts fall back to defaults)
+ * instead of the whole page erroring on an unknown column.
+ */
+export async function getRosters(): Promise<{
+  managed: ManagedArtistDTO[];
+  publishing: ManagedArtistDTO[];
+}> {
   const supabase = createPublicClient();
   const { data, error } = await supabase
     .from('artists')
-    .select('id, name, external_label, image_path, artist_contacts(role, name, email, url, position)')
-    .eq('is_managed', true)
+    .select('*, artist_contacts(role, name, email, url, position)')
     .eq('published', true)
     .order('position', { ascending: true });
 
-  if (error) throw new Error(`getManagedArtists: ${error.message}`);
+  if (error) throw new Error(`getRosters: ${error.message}`);
 
-  return (data ?? []).map((row) => ({
+  const rows = (data ?? []) as ArtistRow[];
+  const toDTO = (row: ArtistRow): ManagedArtistDTO => ({
     id: row.id,
     name: row.name,
     externalLabel: row.external_label,
     imageUrl: mediaUrl(row.image_path),
-    contacts: ((row.artist_contacts ?? []) as {
-      role: string;
-      name: string | null;
-      email: string | null;
-      url: string | null;
-      position: number;
-    }[])
+    contacts: (row.artist_contacts ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
       .map((c) => ({
@@ -149,7 +171,14 @@ export async function getManagedArtists(): Promise<ManagedArtistDTO[]> {
         email: c.email,
         url: c.url,
       })),
-  }));
+    emailSubject: row.email_subject ?? null,
+    emailBody: row.email_body ?? null,
+  });
+
+  return {
+    managed: rows.filter((r) => r.is_managed).map(toDTO),
+    publishing: rows.filter((r) => r.is_publishing === true).map(toDTO),
+  };
 }
 
 export async function getEvents(): Promise<EventDTO[]> {
@@ -202,12 +231,18 @@ export async function getSiteSettings(): Promise<SiteSettingsDTO | null> {
 
 /** Single entry point for the public page. */
 export async function getSiteContent(): Promise<SiteContent> {
-  const [releases, managedArtists, events, settings] = await Promise.all([
+  const [releases, rosters, events, settings] = await Promise.all([
     getReleases(),
-    getManagedArtists(),
+    getRosters(),
     getEvents(),
     getSiteSettings(),
   ]);
 
-  return { releases, managedArtists, events, settings };
+  return {
+    releases,
+    managedArtists: rosters.managed,
+    publishingArtists: rosters.publishing,
+    events,
+    settings,
+  };
 }

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #cccccf;   /* foggy-street.jpg sky tone */
   --foreground: #171717;
 }
 
@@ -12,11 +12,14 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* No dark-mode variant. The public site is designed light-on-fog only, and
+   the old prefers-color-scheme override flipped the *default* text colour to
+   near-white on phones in dark mode — anything without its own colour class
+   (or any browser that drops a utility) came out white on a light background.
+   color-scheme keeps native controls and scrollbars light to match. The
+   admin area paints its own dark background and text, so it's unaffected. */
+:root {
+  color-scheme: light;
 }
 
 body {

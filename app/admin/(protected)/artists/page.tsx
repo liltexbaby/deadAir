@@ -10,7 +10,9 @@ export default async function AdminArtists() {
   const supabase = await createClient();
   const { data: artists, error } = await supabase
     .from('artists')
-    .select('id, name, slug, external_label, is_managed, published, position, artist_contacts(id)')
+    // `*` rather than a column list so this page still loads on a database
+    // where migration 0002 (is_publishing) hasn't been run yet.
+    .select('*, artist_contacts(id)')
     .order('position', { ascending: true });
 
   if (error) {
@@ -49,6 +51,12 @@ export default async function AdminArtists() {
               {a.is_managed && (
                 <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/45">
                   roster · {(a.artist_contacts as { id: string }[] | null)?.length ?? 0} contact(s)
+                </span>
+              )}
+
+              {a.is_publishing && (
+                <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/45">
+                  publishing
                 </span>
               )}
 

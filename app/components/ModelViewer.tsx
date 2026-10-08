@@ -2,11 +2,13 @@
 
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, useAnimations, Environment, ContactShadows } from '@react-three/drei';
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 
 import type { Section } from '@/lib/sections';
 import { useCoarsePointer, useIsNarrow } from '@/lib/useCoarsePointer';
+import { applyTrim, liveTrims } from './cameraTrims';
+import CameraTuner from './CameraTuner';
 
 interface HitProxyUserData {
   section: Section;
@@ -89,15 +91,15 @@ const HOME_PAN_Y_NARROW = 0.05;
 // LIGHTING SETTINGS — dusk / overcast.
 // Kept deliberately dim: the tower's own fixtures below are meant to read as
 // the brightest things in frame, which they can't do against a bright HDRI.
-const AMBIENT_LIGHT = 0.25;
+const AMBIENT_LIGHT = 0.0;
 const AMBIENT_COLOR = '#8fa3b0';        // cool overcast fill
-const KEY_LIGHT_INTENSITY = 0.55;
-const KEY_LIGHT_COLOR = '#b9c7d2';      // weak, low sun
+const KEY_LIGHT_INTENSITY = 0.0;
+const KEY_LIGHT_COLOR = '#000000';      // weak, low sun
 const KEY_LIGHT_POSITION = [10, 15, 10] as [number, number, number];
 // Self-hosted copy of drei's 'dawn' preset (kiara_1_dawn_1k.hdr). Served from
 // our own domain instead of raw.githack.com — see scripts/fetch-hdr.sh.
 const ENVIRONMENT_FILE = '/hdr/kiara_1_dawn_1k.hdr';
-const ENVIRONMENT_INTENSITY = 0.35;
+const ENVIRONMENT_INTENSITY = 0.1;
 // Stand-in for the HDR on touch devices, where the 1.5MB download and the PMREM
 // convolution pass aren't worth it. Intensity is deliberately much higher than
 // the HDR's 0.35: an image-based environment lights from every direction at
@@ -114,6 +116,27 @@ const KEY_LIGHT_INTENSITY_MOBILE = 0.9;
 // visible through a heavy blur there, so this is well below the point where a
 // drop in smoothness reads as stutter. Raise to 60 to disable the throttle.
 const PANEL_FPS = 24;
+
+// PIXEL LOOK
+// The artist built the tower for a low-res, hard-edged look. The scene renders
+// at 1/N of the CSS resolution and the browser scales the canvas up
+// nearest-neighbour (`image-rendering: pixelated`), so each rendered pixel
+// lands as a crisp N-px square. Measured in CSS pixels, so blocks are the same
+// physical size on a retina screen as a regular one. Only the 3D scene is
+// affected; nav, panels and the background photo stay sharp.
+//
+// The wide home shot takes a finer grain than the section close-ups — 2 there
+// reads as noise. Fractional sizes are fine: 1.5 is exactly 3 device pixels on
+// a retina screen; on a 1x monitor blocks alternate 1px/2px. Either can be 0
+// for smooth (supersampled) rendering instead.
+// In dev, `?homepixel=N` and `?pixel=N` override these for comparing sizes.
+const HOME_PIXEL_SIZE = 1.1;
+const PIXEL_SIZE = 2;
+// Entering/leaving a section steps the resolution geometrically between the
+// two rather than snapping — a mosaic transition timed to land while the
+// camera is still flying.
+const PIXEL_STEPS = 4;
+const PIXEL_STEP_MS = 90;
 
 // SHADOW SETTINGS
 const SHADOW_OPACITY = 0.55;
@@ -171,11 +194,54 @@ const WAVES_LOBE_SOFT = 0.18;   // how gradually the arcs taper out toward top/b
 // place. 90 puts the arcs out to the left and right; change if the mesh moves.
 const WAVES_LOBE_ANGLE = 90;    // degrees
 
+// Shared GLSL. Our ShaderMaterials don't get three's fog chunks, so the beams
+// and waves fade with the scene fog via these instead (same linear smoothstep
+// three uses). They fade alpha rather than mixing toward fogColor — the same
+// thing over a light backdrop, and correct for premultiplied output.
+const FOG_FADE_VERT = /* glsl */ `
+  varying float vFogDepth;
+`;
+const FOG_FADE_FRAG = /* glsl */ `
+  uniform float fogNear;
+  uniform float fogFar;
+  varying float vFogDepth;
+  float fogKeep() { return 1.0 - smoothstep(fogNear, fogFar, vFogDepth); }
+`;
+
+// Value noise, shared by the beams and the fog layers.
+const NOISE_GLSL = /* glsl */ `
+  float hash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+
+  float vnoise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x),
+          mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+      mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x),
+          mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y),
+      f.z);
+  }
+
+  // Three octaves (Blender's detail 2), normalised to 0..1.
+  float fbm3(vec3 p) {
+    return (vnoise(p) + 0.5 * vnoise(p * 2.0) + 0.25 * vnoise(p * 4.0)) / 1.75;
+  }
+`;
+
 const WAVES_VERT = /* glsl */ `
   varying vec2 vUv;
+  ${FOG_FADE_VERT}
   void main() {
     vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vFogDepth = -mv.z;
+    gl_Position = projectionMatrix * mv;
   }
 `;
 
@@ -192,6 +258,7 @@ const WAVES_FRAG = /* glsl */ `
   uniform float uLobeSoft;
   uniform float uLobeAngle;
   varying vec2 vUv;
+  ${FOG_FADE_FRAG}
 
   void main() {
     // UVs are a 0..1 square over a circular disc, so radius from the centre
@@ -224,8 +291,270 @@ const WAVES_FRAG = /* glsl */ `
     float radial = smoothstep(uInner, uInner + 0.15, r) *
                    (1.0 - smoothstep(uOuter - 0.45, uOuter, r));
 
-    float alpha = ring * lobe * radial * uOpacity * inDisc;
+    float alpha = ring * lobe * radial * uOpacity * inDisc * fogKeep();
     gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+/* ------------------------------------------
+   LIGHT BEAMS
+   The spotlight cones, one parented to each lamp housing. In Blender their alpha is a procedural chain — a gradient along the
+   cone mixed with noise in Generated coordinates, through a Color Ramp that
+   caps it around 0.28, then Screen-blended with a grunge image projected in
+   *screen space* and scrolled by a frame driver. glTF can't carry any of that,
+   so the exporter falls back to the raw grunge as alpha (~50% opaque
+   everywhere) and the cones render as solid grey. Rebuilt here node-for-node;
+   the numbers below are read straight off DA.blend. Plane.011 is hidden in
+   the artist's viewport but renders, so DA_fixed6.blend unhides it to get it
+   through the visible-only export.
+------------------------------------------ */
+interface BeamSpec {
+  object: string;
+  color: [number, number, number]; // emission colour, linear RGB as in Blender
+  emission: number;       // emission strength (Blender units)
+  litBase: number;        // how much the unlit base colour still shows
+  flicker: boolean;       // emission switched on/off by a noise threshold
+  noiseScale: number;     // Noise Texture scale
+  noiseStretch: number;   // Mapping X scale on Generated coords
+  rampLo: number;         // noise Color Ramp: black stop...
+  rampHi: number;         // ...and the grey it ramps up to
+  grungeLo: number;       // grunge Color Ramp: black stop...
+  grungeHi: number;       // ...and the grey it ramps up to
+  grungeScaleX: number;   // Mapping rotation folded into per-axis scales
+  grungeScaleY: number;
+  grungeSpeed: number;    // screen widths/sec (Blender driver frame/N at 24fps)
+  screenMix: number;      // Mix (Screen) factor
+}
+
+const BEAMS: BeamSpec[] = [
+  {
+    // outline.001 — constant glow
+    object: 'Plane.015', color: [0.204, 0.444, 0.8], emission: 2.9, litBase: 0, flicker: false,
+    noiseScale: 5.3, noiseStretch: 4.3, rampLo: 0.5, rampHi: 0.28,
+    grungeLo: 0.823, grungeHi: 0.06, grungeScaleX: -0.56, grungeScaleY: 1.0,
+    grungeSpeed: 24 / 50, screenMix: 0.708,
+  },
+  {
+    // Light lower — emission flickers on/off, base colour carries it when off
+    object: 'Plane.014', color: [0.204, 0.444, 0.8], emission: 1.0, litBase: 0.35, flicker: true,
+    noiseScale: 5.0, noiseStretch: 1.8, rampLo: 0.486, rampHi: 0.28,
+    grungeLo: 0.409, grungeHi: 0.03, grungeScaleX: 1.0, grungeScaleY: 1.0,
+    grungeSpeed: 24 / 100, screenMix: 0.792,
+  },
+  {
+    // light R.001 — constant glow; Mapping rotates the grunge ~180° about X
+    object: 'Plane.011', color: [0.204, 0.444, 0.8], emission: 2.3, litBase: 0, flicker: false,
+    noiseScale: 5.0, noiseStretch: 1.8, rampLo: 0.486, rampHi: 0.28,
+    grungeLo: 0.932, grungeHi: 0.06, grungeScaleX: 1.0, grungeScaleY: -1.0,
+    grungeSpeed: 24 / 50, screenMix: 0.367,
+  },
+];
+// Global trim. 1.0 is the artist's own emission values. Over the light
+// foggy-street background that already reads like their render (on the old
+// black backdrop it needed ~3x to show at all — higher now clips to white).
+const BEAM_INTENSITY = 1.0;
+// Blender's Noise > Color > Color Ramp averages three noise channels, which
+// narrows its spread; one channel of value noise needs squashing to match.
+const BEAM_NOISE_CONTRAST = 0.6;
+// Blender driver: Noise W = frame/200, compared > 0.5 at noise scale 5.
+const BEAM_FLICKER_RATE = (24 / 200) * 5;
+
+const BEAM_VERT = /* glsl */ `
+  uniform vec3 uBoxMin;
+  uniform vec3 uBoxSize;
+  varying vec3 vGen;
+  ${FOG_FADE_VERT}
+  void main() {
+    // Blender's Generated coords: position normalised to the mesh's own
+    // bounding box. glTF is Y-up, so swap back to Blender's Z-up axes.
+    vec3 g = (position - uBoxMin) / uBoxSize;
+    vGen = vec3(g.x, 1.0 - g.z, g.y);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vFogDepth = -mv.z;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const BEAM_FRAG = /* glsl */ `
+  uniform float uTime;
+  uniform vec3  uColor;
+  uniform float uEmission;
+  uniform float uLitBase;
+  uniform float uFlicker;
+  uniform float uIntensity;
+  uniform float uNoiseScale;
+  uniform float uNoiseStretch;
+  uniform float uNoiseContrast;
+  uniform float uRampLo;
+  uniform float uRampHi;
+  uniform sampler2D uGrunge;
+  uniform float uHasGrunge;
+  uniform float uGrungeLo;
+  uniform float uGrungeHi;
+  uniform float uGrungeScaleX;
+  uniform float uGrungeScaleY;
+  uniform float uGrungeSpeed;
+  uniform float uScreenMix;
+  uniform vec2  uResolution;
+  varying vec3 vGen;
+  ${FOG_FADE_FRAG}
+  ${NOISE_GLSL}
+
+  // Detail 2, roughness 0.5, lacunarity 2 — Blender's settings on the beams.
+  float fbm(vec3 p) {
+    return 0.5 + (fbm3(p) - 0.5) * uNoiseContrast;
+  }
+
+  // Linear Color Ramp from black at lo to grey hi at 1.0.
+  float ramp(float x, float lo, float hi) {
+    return clamp((x - lo) / (1.0 - lo), 0.0, 1.0) * hi;
+  }
+
+  void main() {
+    // Gradient (Linear, along X) mixed 35/65 with noise, into the ramp.
+    vec3 np = vGen * vec3(uNoiseStretch, 1.0, 1.0) * uNoiseScale;
+    float m = mix(vGen.x, fbm(np), 0.65);
+    float a = ramp(m, uRampLo, uRampHi);
+
+    // Grunge in Window coordinates, scrolled sideways by the frame driver.
+    float b = 0.0;
+    if (uHasGrunge > 0.5) {
+      vec2 w = gl_FragCoord.xy / uResolution;
+      vec2 guv = vec2(w.x * uGrungeScaleX + uTime * uGrungeSpeed, w.y * uGrungeScaleY);
+      // The exporter repacks the grunge per material — sometimes as greyscale
+      // RGBA, sometimes white RGB with the grunge only in alpha — so alpha is
+      // the one channel that always holds it. It's the raw sRGB value there;
+      // Blender ramps the linear one.
+      float g = pow(texture2D(uGrunge, guv).a, 2.2);
+      b = ramp(g, uGrungeLo, uGrungeHi);
+    }
+
+    float screen = 1.0 - (1.0 - a) * (1.0 - b);
+    float alpha = mix(a, screen, uScreenMix);
+
+    // Premultiplied: the emission is well above 1.0, and an 8-bit canvas
+    // clamps the colour *before* the blend would scale it by alpha.
+    vec3 col = uColor * (uLitBase + uEmission * uFlicker) * uIntensity;
+    gl_FragColor = vec4(col * alpha, alpha) * fogKeep();
+    #include <colorspace_fragment>
+  }
+`;
+
+/* ------------------------------------------
+   FOG
+   Silent Hill-style fog, two layers of it:
+   1. Distance fog (scene.fog): geometry fades toward the photo's grey with
+      depth, so the tower sits *in* the foggy-street background rather than on
+      top of it. Our ShaderMaterials join in via FOG_FADE_*.
+   2. Drifting fog sheets: big camera-facing planes of animated noise, behind
+      the tower, low around its base and thinly in front, brightening where
+      they pass the spotlights so the lamps read as glowing through the murk.
+
+   Each sheet sits on the line from the camera through the tower, pushed past
+   the tower's footprint, so it never slices through geometry (no hard
+   intersection lines). Everything is sized in tower heights (H) measured off
+   the model at runtime, so re-exports and MODEL_SCALE changes carry over.
+   The front/ground sheets fade out as the camera closes in for a section
+   shot; the back ones only thin, keeping some depth behind close-ups.
+   Blender's Volume shaders can't do any of this: volumetrics don't
+   survive glTF export at all.
+------------------------------------------ */
+// Display-space RGB (0-255) sampled off foggy-street.jpg at tower height.
+const FOG_COLOR = [201, 200, 201];
+// Distance fog range, in tower heights from the camera. The home camera sits
+// ~2.3H out, so the near face barely fogs and the far side and top thin out;
+// section cameras sit well inside FOG_NEAR and stay clear.
+const FOG_NEAR = 1.5;
+const FOG_FAR = 5.0;
+// Global multiplier on every sheet's opacity — the one knob for "more fog".
+// In dev, `?fog=N` overrides it (0 = sheets off; distance fog stays).
+const FOG_DENSITY = 1.5;
+const FOG_LAMP_COLOR = [207, 234, 255];   // matches the spotlight fixtures
+const FOG_LAMP_RADIUS = 0.18;             // glow falloff, in tower heights
+
+interface FogSheet {
+  offset: number;          // along camera->tower, in H; + behind the tower, - in front
+  height: number;          // centre height above the base, in H
+  size: [number, number];  // width, height in H
+  opacity: number;
+  scale: [number, number]; // noise frequency across the sheet
+  drift: [number, number]; // noise scroll, sheet-widths per second
+  evolve: number;          // how fast the noise churns in place
+  ground: boolean;         // dense at the bottom, thinning upward
+  front: boolean;          // between camera and tower: fades out in close-ups
+  glow: number;            // spotlight glow strength
+}
+
+const FOG_SHEETS: FogSheet[] = [
+  // far bank behind everything
+  { offset: 1.6, height: 0.5, size: [3.6, 1.3], opacity: 0.4, scale: [3.0, 1.2],
+    drift: [0.010, 0.002], evolve: 0.03, ground: false, front: false, glow: 0.0 },
+  // close behind the tower, where the lamps light it up
+  { offset: 0.6, height: 0.45, size: [3.0, 1.2], opacity: 0.45, scale: [2.5, 1.0],
+    drift: [-0.015, 0.003], evolve: 0.05, ground: false, front: false, glow: 1.0 },
+  // ground mist just in front of the base — bottom edge sits at base level
+  { offset: -0.6, height: 0.18, size: [3.0, 0.36], opacity: 0.65, scale: [3.0, 0.8],
+    drift: [0.020, 0.0], evolve: 0.06, ground: true, front: true, glow: 0.6 },
+  // thin veil in front
+  { offset: -0.75, height: 0.5, size: [3.0, 1.3], opacity: 0.2, scale: [2.0, 0.9],
+    drift: [0.030, -0.004], evolve: 0.08, ground: false, front: true, glow: 0.8 },
+];
+
+const FOG_SHEET_VERT = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vWorld;
+  void main() {
+    vUv = uv;
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vWorld = w.xyz;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }
+`;
+
+const FOG_SHEET_FRAG = /* glsl */ `
+  uniform float uTime;
+  uniform vec3  uColor;
+  uniform float uOpacity;
+  uniform vec2  uScale;
+  uniform vec2  uDrift;
+  uniform float uEvolve;
+  uniform float uSeed;
+  uniform float uGround;
+  uniform vec3  uLamps[3];
+  uniform vec3  uLampColor;
+  uniform float uLampRadius;
+  uniform float uGlow;
+  varying vec2 vUv;
+  varying vec3 vWorld;
+  ${NOISE_GLSL}
+
+  void main() {
+    vec2 p = vUv * uScale + uDrift * uTime * uScale + uSeed;
+    float n = fbm3(vec3(p, uTime * uEvolve + uSeed));
+    // Wisps rather than a flat veil: only the densest patches of noise show.
+    float d = smoothstep(0.45, 0.8, n);
+
+    // Feather every edge so no sheet ever reads as a rectangle. Rounded
+    // (sine) profiles rather than smoothstep ramps: a linear-ish ramp still
+    // shows as a straight band edge across the dark trees once density rises.
+    float ex = pow(sin(3.14159265 * vUv.x), 1.5);
+    float eyBank = pow(sin(3.14159265 * vUv.y), 2.0);
+    // Ground mist: densest low down, fading out well before the top.
+    float eyGround = sin(3.14159265 * min(vUv.y * 1.6, 1.0) * 0.5 + 1.5707963) * smoothstep(0.0, 0.35, vUv.y);
+    float a = d * ex * mix(eyBank, eyGround, uGround) * uOpacity;
+
+    // Lamps scatter into the fog around them.
+    float glow = 0.0;
+    for (int i = 0; i < 3; i++) {
+      vec3 dv = vWorld - uLamps[i];
+      glow += exp(-dot(dv, dv) / (uLampRadius * uLampRadius));
+    }
+    glow *= uGlow;
+    vec3 col = uColor + uLampColor * glow;
+    a = clamp(a * (1.0 + glow), 0.0, 1.0);
+
+    // Display-space colour, premultiplied.
+    gl_FragColor = vec4(col * a, a);
   }
 `;
 
@@ -286,6 +615,12 @@ function resolveShot(
   target.getWorldPosition(targetPos);
   target.getWorldQuaternion(targetQuat);
 
+  // Per-shot fine-tuning from cameraTrims.ts, applied to the authored pose as
+  // if the Blender camera itself had been nudged — so the dolly below then
+  // backs off along the *trimmed* view axis.
+  const shot = active ?? 'home';
+  applyTrim(shot, targetPos, targetQuat);
+
   // Back the camera off along its own view axis. Distance is scaled by how far
   // the shot already sits from what it is pointed at, so the trim is a constant
   // proportion rather than a fixed world offset that a re-export could
@@ -312,7 +647,8 @@ function resolveShot(
   // The GLB carries the FOV each shot was framed with (cam_home 44.1deg, the
   // section cameras 22.9deg). Previously all of this was discarded and
   // everything rendered at R3F's default 75deg.
-  return target instanceof THREE.PerspectiveCamera ? target.fov : FOV_FALLBACK;
+  const fov = target instanceof THREE.PerspectiveCamera ? target.fov : FOV_FALLBACK;
+  return fov + liveTrims[shot].fov;
 }
 
 /**
@@ -379,6 +715,7 @@ function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
       if (hoverCam) {
         hoverCam.getWorldPosition(hoverPos);
         hoverCam.getWorldQuaternion(hoverQuat);
+        applyTrim(hovered, hoverPos, hoverQuat);
         targetPos.lerp(hoverPos, HOVER_NUDGE);
         targetQuat.slerp(hoverQuat, HOVER_NUDGE);
       }
@@ -583,7 +920,10 @@ function RadioWaves({ scene }: { scene: THREE.Object3D }) {
     const shader = new THREE.ShaderMaterial({
       vertexShader: WAVES_VERT,
       fragmentShader: WAVES_FRAG,
+      // Lets three feed fogNear/fogFar from scene.fog (see FogLayers).
+      fog: true,
       uniforms: {
+        ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
         uTime: { value: 0 },
         uColor: { value: new THREE.Color(WAVES_COLOR) },
         uRings: { value: WAVES_RING_COUNT },
@@ -614,6 +954,238 @@ function RadioWaves({ scene }: { scene: THREE.Object3D }) {
 
   useFrame((state) => {
     if (material.current) material.current.uniforms.uTime.value = state.clock.elapsedTime;
+  });
+
+  return null;
+}
+
+// 1D value noise for the lower beam's on/off flicker, matching the Math
+// Greater Than node on Blender's Noise W.
+function noise1(x: number): number {
+  const h = (n: number) => {
+    const s = Math.sin(n * 127.1) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const i = Math.floor(x);
+  const f = x - i;
+  const u = f * f * (3 - 2 * f);
+  return h(i) * (1 - u) + h(i + 1) * u;
+}
+
+function LightBeams({ scene }: { scene: THREE.Object3D }) {
+  const beams = useRef<{ shader: THREE.ShaderMaterial; spec: BeamSpec }[]>([]);
+  const size = useMemo(() => new THREE.Vector2(), []);
+
+  useLayoutEffect(() => {
+    const created: { shader: THREE.ShaderMaterial; spec: BeamSpec }[] = [];
+    const restore: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }[] = [];
+
+    BEAMS.forEach((spec) => {
+      const host =
+        scene.getObjectByName(spec.object) ??
+        scene.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(spec.object));
+      if (!(host instanceof THREE.Mesh)) return;
+
+      const geo = host.geometry as THREE.BufferGeometry;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const box = geo.boundingBox!;
+      const boxSize = box.getSize(new THREE.Vector3());
+
+      // The exporter left the grunge image on the material as its base map —
+      // reuse it rather than shipping it twice.
+      const original = host.material;
+      const src = Array.isArray(original) ? original[0] : original;
+      const grunge = src instanceof THREE.MeshStandardMaterial ? src.map : null;
+
+      const shader = new THREE.ShaderMaterial({
+        vertexShader: BEAM_VERT,
+        fragmentShader: BEAM_FRAG,
+        fog: true,
+        uniforms: {
+          ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
+          uTime: { value: 0 },
+          uBoxMin: { value: box.min.clone() },
+          uBoxSize: { value: boxSize },
+          uColor: { value: new THREE.Vector3(...spec.color) },
+          uEmission: { value: spec.emission },
+          uLitBase: { value: spec.litBase },
+          uFlicker: { value: 1 },
+          uIntensity: { value: BEAM_INTENSITY },
+          uNoiseScale: { value: spec.noiseScale },
+          uNoiseStretch: { value: spec.noiseStretch },
+          uNoiseContrast: { value: BEAM_NOISE_CONTRAST },
+          uRampLo: { value: spec.rampLo },
+          uRampHi: { value: spec.rampHi },
+          uGrunge: { value: grunge },
+          uHasGrunge: { value: grunge ? 1 : 0 },
+          uGrungeLo: { value: spec.grungeLo },
+          uGrungeHi: { value: spec.grungeHi },
+          uGrungeScaleX: { value: spec.grungeScaleX },
+          uGrungeScaleY: { value: spec.grungeScaleY },
+          uGrungeSpeed: { value: spec.grungeSpeed },
+          uScreenMix: { value: spec.screenMix },
+          uResolution: { value: new THREE.Vector2(1, 1) },
+        },
+        transparent: true,
+        depthWrite: false,
+        // Alpha-over, as Eevee composites a Blended material. Additive looked
+        // the same on the old black backdrop but vanishes against the light
+        // foggy-street background — adding blue to near-white is near-white.
+        // Over a light sky this tints instead, like the artist's own render.
+        blending: THREE.NormalBlending,
+        premultipliedAlpha: true,
+        side: src.side,
+      });
+
+      restore.push({ mesh: host, material: original });
+      host.material = shader;
+      created.push({ shader, spec });
+    });
+
+    beams.current = created;
+    return () => {
+      restore.forEach(({ mesh, material }) => { mesh.material = material; });
+      created.forEach(({ shader }) => shader.dispose());
+      beams.current = [];
+    };
+  }, [scene]);
+
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    state.gl.getDrawingBufferSize(size);
+    beams.current.forEach(({ shader, spec }) => {
+      const u = shader.uniforms;
+      u.uTime.value = t;
+      (u.uResolution.value as THREE.Vector2).copy(size);
+      if (spec.flicker) u.uFlicker.value = noise1(t * BEAM_FLICKER_RATE) > 0.5 ? 1 : 0;
+    });
+  });
+
+  return null;
+}
+
+const LAMP_NAMES = ['lights.004', 'lights.005', 'lights.006'];
+
+function findNode(scene: THREE.Object3D, name: string): THREE.Object3D | undefined {
+  return scene.getObjectByName(name) ??
+    scene.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(name));
+}
+
+function FogLayers({ scene }: { scene: THREE.Object3D }) {
+  // Read the root scene inside the effect via get(): it gets mutated (fog,
+  // added meshes), which the React lint rightly forbids on a hook's value.
+  const get = useThree((s) => s.get);
+  const sheets = useRef<{ mesh: THREE.Mesh; shader: THREE.ShaderMaterial; spec: FogSheet }[]>([]);
+  const frame = useRef({ base: new THREE.Vector3(), H: 1, density: FOG_DENSITY });
+
+  useLayoutEffect(() => {
+    // Tower metrics in world space: base = the platform's origin, H = up to the
+    // beacon. Measured after the model group's scale/position are applied.
+    const base = findNode(scene, 'floor.003');
+    const beacon = findNode(scene, 'Cube.050');
+    if (!base || !beacon) return;
+    scene.updateWorldMatrix(true, true);
+    const basePos = base.getWorldPosition(new THREE.Vector3());
+    const H = Math.max(beacon.getWorldPosition(new THREE.Vector3()).y - basePos.y, 1e-3);
+    // Dev-only ?fog=N density override. Read here rather than in render: this
+    // only ever runs client-side, inside the canvas.
+    let density = FOG_DENSITY;
+    if (process.env.NODE_ENV !== 'production') {
+      const v = parseFloat(new URLSearchParams(window.location.search).get('fog') ?? '');
+      if (Number.isFinite(v) && v >= 0) density = v;
+    }
+    frame.current = { base: basePos, H, density };
+
+    // Built from display values: three mixes fog in *after* the sRGB output
+    // conversion, so a normal Color (stored linear) would fog too dark.
+    const fogColor = new THREE.Color().setRGB(
+      FOG_COLOR[0] / 255, FOG_COLOR[1] / 255, FOG_COLOR[2] / 255, THREE.LinearSRGBColorSpace,
+    );
+    const root = get().scene;
+    const prevFog = root.fog;
+    root.fog = new THREE.Fog(fogColor, FOG_NEAR * H, FOG_FAR * H);
+
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const created = FOG_SHEETS.map((spec, i) => {
+      const shader = new THREE.ShaderMaterial({
+        vertexShader: FOG_SHEET_VERT,
+        fragmentShader: FOG_SHEET_FRAG,
+        uniforms: {
+          uTime: { value: 0 },
+          uColor: { value: new THREE.Vector3(...FOG_COLOR.map((c) => c / 255)) },
+          uOpacity: { value: 0 },
+          uScale: { value: new THREE.Vector2(...spec.scale) },
+          uDrift: { value: new THREE.Vector2(...spec.drift) },
+          uEvolve: { value: spec.evolve },
+          uSeed: { value: i * 17.3 },
+          uGround: { value: spec.ground ? 1 : 0 },
+          uLamps: { value: LAMP_NAMES.map(() => new THREE.Vector3(1e6, 1e6, 1e6)) },
+          uLampColor: { value: new THREE.Vector3(...FOG_LAMP_COLOR.map((c) => c / 255)) },
+          uLampRadius: { value: FOG_LAMP_RADIUS * H },
+          uGlow: { value: spec.glow },
+        },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        premultipliedAlpha: true,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geometry, shader);
+      mesh.scale.set(spec.size[0] * H, spec.size[1] * H, 1);
+      // Fog never takes clicks or hovers meant for the tower.
+      mesh.raycast = () => {};
+      mesh.frustumCulled = false;
+      root.add(mesh);
+      return { mesh, shader, spec };
+    });
+    sheets.current = created;
+
+    return () => {
+      created.forEach(({ mesh, shader }) => {
+        root.remove(mesh);
+        shader.dispose();
+      });
+      geometry.dispose();
+      root.fog = prevFog;
+      sheets.current = [];
+    };
+  }, [scene, get]);
+
+  const toTower = useMemo(() => new THREE.Vector3(), []);
+  const lamp = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame((state) => {
+    const { base, H, density } = frame.current;
+    const cam = state.camera;
+    const t = state.clock.elapsedTime;
+
+    // Horizontal direction from camera to tower; sheets line up along it.
+    toTower.set(base.x - cam.position.x, 0, base.z - cam.position.z);
+    const dist = Math.max(toTower.length(), 1e-3);
+    toTower.divideScalar(dist);
+    const distH = dist / H;
+    // 1 on the home shot (~2.3H out), 0 in a close-up (~1H or less).
+    const wide = THREE.MathUtils.smoothstep(distH, 1.2, 2.0);
+
+    const lamps = LAMP_NAMES.map((n) => findNode(scene, n));
+
+    sheets.current.forEach(({ mesh, shader, spec }) => {
+      mesh.position.set(
+        base.x + toTower.x * spec.offset * H,
+        base.y + spec.height * H,
+        base.z + toTower.z * spec.offset * H,
+      );
+      // Face the camera, but stay upright.
+      mesh.lookAt(cam.position.x, mesh.position.y, cam.position.z);
+
+      const u = shader.uniforms;
+      u.uTime.value = t;
+      const k = spec.front ? wide : 0.5 + 0.5 * wide;
+      u.uOpacity.value = spec.opacity * density * k;
+      lamps.forEach((l, i) => {
+        if (l) (u.uLamps.value as THREE.Vector3[])[i].copy(l.getWorldPosition(lamp));
+      });
+    });
   });
 
   return null;
@@ -746,6 +1318,8 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover, modelUrl }:
       </group>
       <PracticalLights scene={scene} reduced={coarse} />
       <RadioWaves scene={scene} />
+      <LightBeams scene={scene} />
+      <FogLayers scene={scene} />
       {/* Driven by the shared hover state, so pointing at a nav label leans the
           camera exactly as pointing at the tower itself does. The lean is a
           mouse affordance, so it's suppressed on touch. */}
@@ -757,6 +1331,79 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover, modelUrl }:
       />
     </>
   );
+}
+
+// The camera tuner (CameraTuner.tsx) is a dev tool: `npm run dev`, then open
+// the site with ?camtune. Never shown in a production build. Read through
+// useSyncExternalStore so the server render (false) and the client's first
+// render agree, rather than branching on `window` mid-render.
+const noSubscribe = () => () => {};
+function useCameraTuning(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () =>
+      process.env.NODE_ENV !== 'production' &&
+      new URLSearchParams(window.location.search).has('camtune'),
+    () => false,
+  );
+}
+
+// A pixel size, unless overridden in dev with ?<param>=N (0 = smooth).
+function usePixelSize(param: string, fallback: number): number {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => {
+      if (process.env.NODE_ENV === 'production') return fallback;
+      const v = new URLSearchParams(window.location.search).get(param);
+      const n = v === null ? NaN : parseFloat(v);
+      return Number.isFinite(n) && n >= 0 ? n : fallback;
+    },
+    () => fallback,
+  );
+}
+
+type Dpr = number | [number, number];
+
+/**
+ * Canvas resolution for the pixel look: `target` is the block size in CSS px,
+ * 0 for smooth. Changes step through PIXEL_STEPS intermediate resolutions
+ * instead of snapping.
+ */
+function usePixelTransition(target: number, coarse: boolean): { dpr: Dpr; pixelated: boolean } {
+  // The canvas has no MSAA (it would soften the section blocks), so home is
+  // smoothed by supersampling: desktop always renders at 2x, which a 1x
+  // monitor's filtered downscale turns into anti-aliasing and a retina screen
+  // shows natively. Phones keep a [1, 1.5] range — 2x on a 390x844 screen is
+  // ~1.3M pixels, and at their density 1.5x shows little aliasing.
+  const smooth: Dpr = coarse ? [1, 1.5] : 2;
+  const smoothMax = coarse ? 1.5 : 2;
+  // null = smooth (the clamped range above); a number = an explicit dpr.
+  const [step, setStep] = useState<number | null>(target > 0 ? 1 / target : null);
+  const current = useRef(step);
+
+  useEffect(() => {
+    const resolveSmooth = () =>
+      coarse ? Math.min(Math.max(window.devicePixelRatio || 1, 1), smoothMax) : smoothMax;
+    const from = current.current ?? resolveSmooth();
+    const to = target > 0 ? 1 / target : resolveSmooth();
+    if (Math.abs(from - to) < 1e-3) return;
+
+    const timers: number[] = [];
+    for (let i = 1; i <= PIXEL_STEPS; i++) {
+      const last = i === PIXEL_STEPS;
+      // Geometric, so each step changes block size by the same ratio.
+      const value = last ? (target > 0 ? to : null) : from * Math.pow(to / from, i / PIXEL_STEPS);
+      timers.push(
+        window.setTimeout(() => {
+          current.current = value;
+          setStep(value);
+        }, i * PIXEL_STEP_MS),
+      );
+    }
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, [target, smoothMax, coarse]);
+
+  return { dpr: step ?? smooth, pixelated: step !== null };
 }
 
 interface ModelViewerProps {
@@ -778,6 +1425,10 @@ export default function ModelViewer({
 }: ModelViewerProps) {
   const coarse = useCoarsePointer();
   const isNarrow = useIsNarrow();
+  const tuning = useCameraTuning();
+  const homePixel = usePixelSize('homepixel', HOME_PIXEL_SIZE);
+  const sectionPixel = usePixelSize('pixel', PIXEL_SIZE);
+  const { dpr, pixelated } = usePixelTransition(activeSection ? sectionPixel : homePixel, coarse);
 
   // Throttle — do NOT stop — the render loop while a mobile panel is open.
   //
@@ -811,16 +1462,21 @@ export default function ModelViewer({
   return (
     <div className="w-full h-dvh">
       <Canvas
-        style={{ background: 'transparent' }}
+        // Nearest-neighbour only while pixelated; on home the browser's normal
+        // filtered downscale of the 2x canvas is what anti-aliases it.
+        style={{ background: 'transparent', imageRendering: pixelated ? 'pixelated' : 'auto' }}
         onPointerMissed={onClose}
         // 'demand' renders only when something calls invalidate() — FrameThrottle
         // below does that at a fixed rate. Animations still advance correctly
         // because useFrame receives the real (larger) delta.
         frameloop={throttled ? 'demand' : 'always'}
-        // R3F defaults to [1, 2]; 2x on a 390x844 phone is ~1.3M pixels with
-        // MSAA on top. 1.5x is a big saving at basically no visible cost.
-        dpr={coarse ? [1, 1.5] : [1, 2]}
-        gl={{ antialias: !coarse, powerPreference: 'high-performance' }}
+        // Driven by usePixelTransition: smooth on home, 1/PIXEL_SIZE in a
+        // section (which is also far cheaper to draw). It has to be this prop
+        // rather than a setDpr call — R3F re-applies the prop on every render.
+        dpr={dpr}
+        // No MSAA: it softened the section blocks. Home gets its smoothing from
+        // supersampling instead (see usePixelTransition).
+        gl={{ antialias: false, powerPreference: 'high-performance' }}
       >
         <FrameThrottle fps={throttled ? PANEL_FPS : null} />
 
@@ -874,6 +1530,7 @@ export default function ModelViewer({
           />
         </Suspense>
       </Canvas>
+      {tuning && <CameraTuner shot={activeSection ?? 'home'} />}
     </div>
   );
 }

@@ -10,6 +10,17 @@ const nextConfig: NextConfig = {
   // Dev-only; has no effect on a production build.
   allowedDevOrigins: ['192.168.1.154', '192.168.1.*', '*.local'],
 
+  experimental: {
+    serverActions: {
+      // Covers and posters upload through Server Actions, whose default body
+      // cap is 1 MB — real artwork is far bigger. The admin forms compress in
+      // the browser first (lib/compressImage.ts), so uploads normally land
+      // well under 1 MB; this is headroom, kept below the host's ~4.5 MB
+      // request limit.
+      bodySizeLimit: '4mb',
+    },
+  },
+
   images: {
     remotePatterns: [
       {

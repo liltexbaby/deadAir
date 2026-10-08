@@ -16,6 +16,9 @@ const HITS = ['live', 'contact', 'gallery', 'store', 'mgmt', 'catalog'];
 const FIXTURES = [
   'Cube.050', 'lights.004', 'lights.005', 'lights.006',
   'Cube.052', 'Plane.019', 'Plane.020', 'Cylinder.005',
+  // spotlight beams (LightBeams). Plane.011 is hidden in the artist's viewport,
+  // so it only survives a visible-only export from DA_fixed6.blend onward.
+  'Plane.011', 'Plane.014', 'Plane.015',
 ];
 
 function parse(path) {
@@ -40,7 +43,7 @@ for (const file of ['public/DA.glb', 'public/DA.mobile.glb']) {
     ['cameras', CAMERAS.every((s) => names.has(`cam_${s}`)), `${CAMERAS.filter((s) => names.has(`cam_${s}`)).length}/7`],
     ['hit proxies', HITS.every((s) => names.has(`hit_${s}`)), `${hits.length}/6`],
     ['hit extras', hits.length === 6 && hits.every((n) => n.extras?.section), `${hits.filter((n) => n.extras?.section).length}/6`],
-    ['light/shader fixtures', FIXTURES.every((f) => names.has(f)), `${FIXTURES.filter((f) => names.has(f)).length}/8`],
+    ['light/shader fixtures', FIXTURES.every((f) => names.has(f)), `${FIXTURES.filter((f) => names.has(f)).length}/${FIXTURES.length}`],
     ['skins', (j.skins?.length ?? 0) === 4, String(j.skins?.length ?? 0)],
     ['animations', (j.animations?.length ?? 0) === 21, String(j.animations?.length ?? 0)],
   ];

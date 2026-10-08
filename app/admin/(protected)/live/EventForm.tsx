@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import Image from 'next/image';
 import type { ActionState } from '@/app/actions/types';
+import { compressPickedImage } from '@/lib/compressImage';
 
 const STATUSES = [
   ['announced', 'announced'],
@@ -175,6 +176,8 @@ export default function EventForm({
             name="image"
             type="file"
             accept="image/*"
+            // Shrinks big artwork in the browser before it's uploaded.
+            onChange={compressPickedImage}
             className="font-mono text-[10px] text-white/50 file:mr-3 file:border file:border-white/20 file:bg-transparent file:px-3 file:py-1.5 file:font-mono file:text-[10px] file:uppercase file:tracking-[0.2em] file:text-white/70 hover:file:border-white/40 file:cursor-pointer"
           />
         </div>

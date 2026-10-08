@@ -1,6 +1,6 @@
 'use client';
 
-import { SECTIONS, type Section } from '@/lib/sections';
+import { SECTIONS, SECTION_LABELS, type Section } from '@/lib/sections';
 
 interface NavigationProps {
   selectedSection: Section | null;
@@ -17,10 +17,11 @@ export default function Navigation({
   onSectionHover,
 }: NavigationProps) {
   return (
-    // 6 items at 11px with 0.2em tracking plus gap-7 needs ~439px; an iPhone 14
-    // is 390px. Wrapping (rather than scrolling) keeps every section reachable
-    // without a hidden-overflow gesture nobody would discover.
-    <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:gap-x-7 px-3">
+    // Phones get 10px type, tighter tracking and gaps so all six items sit on
+    // one line from 360px up (measured; desktop's 11px/0.2em needs ~420px).
+    // Wrapping stays on as the fallback for anything narrower — every section
+    // stays reachable without a hidden-overflow gesture nobody would discover.
+    <nav className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:gap-x-7 px-2 sm:px-3">
       {SECTIONS.map((section) => {
         const isSelected = selectedSection === section;
         // hoveredSection is also set by the 3D tower, so pointing at a hit proxy
@@ -35,9 +36,9 @@ export default function Navigation({
             onMouseEnter={() => onSectionHover(section)}
             onMouseLeave={() => onSectionHover(null)}
             className={`
-              relative font-mono text-[11px] uppercase tracking-[0.15em] sm:tracking-[0.2em]
+              relative font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.2em]
               py-2.5 sm:py-0 transition-all duration-200 cursor-pointer
-              ${isSelected ? 'text-white font-bold' : isHovered ? 'text-white/70' : 'text-white/45'}
+              ${isSelected ? 'text-black font-bold' : isHovered ? 'text-black/70' : 'text-black/45'}
             `}
           >
             <span
@@ -49,7 +50,9 @@ export default function Navigation({
               [
             </span>
 
-            {section}
+            {SECTION_LABELS[section]}
+            {/* Store leaves the site (new tab) — say so before the click. */}
+            {section === 'store' && <span aria-hidden className="ml-0.5">↗</span>}
 
             <span
               aria-hidden
@@ -69,7 +72,7 @@ export default function Navigation({
                 appears where it already is. */}
             <span
               aria-hidden
-              className={`absolute -inset-x-3 -inset-y-1 -z-10 bg-white/[0.06] transition-opacity duration-200 ${
+              className={`absolute -inset-x-3 -inset-y-1 -z-10 bg-black/[0.06] transition-opacity duration-200 ${
                 isActive ? 'opacity-100' : 'opacity-0'
               }`}
             />

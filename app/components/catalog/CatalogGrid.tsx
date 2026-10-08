@@ -6,7 +6,7 @@ import type { ReleaseDTO } from '@/lib/queries';
 export default function CatalogGrid({ releases }: { releases: ReleaseDTO[] }) {
   if (releases.length === 0) {
     return (
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">
+      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-black/40">
         no releases yet
       </p>
     );
@@ -15,7 +15,7 @@ export default function CatalogGrid({ releases }: { releases: ReleaseDTO[] }) {
   return (
     <div className="@container w-full">
       {/* Grid info header */}
-      <div className="mb-6 font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">
+      <div className="mb-6 font-mono text-[10px] uppercase tracking-[0.2em] text-black/40">
         total releases — {releases.length}
       </div>
 
@@ -29,7 +29,7 @@ export default function CatalogGrid({ releases }: { releases: ReleaseDTO[] }) {
       </div>
 
       {/* Bottom rule */}
-      <div className="mt-10 border-t border-white/10" />
+      <div className="mt-10 border-t border-black/10" />
     </div>
   );
 }

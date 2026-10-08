@@ -32,6 +32,10 @@ const ArtistSchema = z.object({
     .regex(/^[a-z0-9-]+$/, 'lowercase letters, numbers and hyphens only'),
   external_label: optionalText,
   is_managed: z.coerce.boolean(),
+  // Columns from migration 0002 — saving fails until it has been run.
+  is_publishing: z.coerce.boolean(),
+  email_subject: optionalText,
+  email_body: optionalText,
   published: z.coerce.boolean(),
   position: z.coerce.number().int().min(0),
 });
@@ -79,6 +83,9 @@ function parseArtist(formData: FormData) {
     slug: formData.get('slug'),
     external_label: formData.get('external_label') ?? '',
     is_managed: formData.get('is_managed') === 'on',
+    is_publishing: formData.get('is_publishing') === 'on',
+    email_subject: formData.get('email_subject') ?? '',
+    email_body: formData.get('email_body') ?? '',
     published: formData.get('published') === 'on',
     position: formData.get('position') || 0,
   });

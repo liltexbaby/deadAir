@@ -9,9 +9,8 @@ import RightPanel from './RightPanel';
 import CatalogGrid from './catalog/CatalogGrid';
 import MgmtPanel from './panels/MgmtPanel';
 import LivePanel from './panels/LivePanel';
-import ContactPanel from './panels/ContactPanel';
 
-import type { Section } from '@/lib/sections';
+import { SECTION_LABELS, STORE_URL, type Section } from '@/lib/sections';
 import type { SiteContent } from '@/lib/queries';
 import { useIsNarrow } from '@/lib/useCoarsePointer';
 import SceneLoader from './SceneLoader';
@@ -28,11 +27,24 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   const [hoveredSection, setHoveredSection] = useState<Section | null>(null);
 
   const handleSectionClick = (section: Section) => {
+    // STORE has no panel: it goes straight to the shop. This also catches a
+    // click on the tower's store hit area, which routes through here too.
+    if (section === 'store') {
+      window.open(STORE_URL, '_blank', 'noopener,noreferrer');
+      return;
+    }
     setSelectedSection(selectedSection === section ? null : section);
   };
 
   const handleClose = () => {
     setSelectedSection(null);
+  };
+
+  // dA logo: back to the untouched landing state — panel closed (which also
+  // flies the camera home) and no lingering hover lean.
+  const handleReset = () => {
+    setSelectedSection(null);
+    setHoveredSection(null);
   };
 
   useEffect(() => {
@@ -49,22 +61,23 @@ export default function SiteShell({ content }: { content: SiteContent }) {
         return <CatalogGrid releases={content.releases} />;
       case 'live':
         return <LivePanel events={content.events} />;
-      case 'store':
-        return (
-          <div className="font-mono text-white/90">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/50">□ STORE SECTION</p>
-            <p className="mt-3 text-sm text-white/60">Merchandise and physical releases coming soon...</p>
-          </div>
-        );
+      // Slug is still 'contact' (it's baked into the GLB); the panel is PUBLISHING.
       case 'contact':
-        return <ContactPanel settings={content.settings} />;
+        return (
+          <MgmtPanel
+            artists={content.publishingArtists}
+            showContacts={false}
+            label="Publishing roster"
+            emptyText="no publishing clients listed yet"
+          />
+        );
       case 'mgmt':
         return <MgmtPanel artists={content.managedArtists} />;
       case 'gallery':
         return (
-          <div className="font-mono text-white/90">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/50">□ GALLERY SECTION</p>
-            <p className="mt-3 text-sm text-white/60">Photos and media gallery coming soon...</p>
+          <div className="font-mono text-black/90">
+            <p className="text-xs uppercase tracking-[0.2em] text-black/50">□ GALLERY SECTION</p>
+            <p className="mt-3 text-sm text-black/60">Photos and media gallery coming soon...</p>
           </div>
         );
       default:
@@ -74,6 +87,9 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
   const isPanelOpen = selectedSection !== null;
   const isNarrow = useIsNarrow();
+  // A full-screen phone sheet covers the header, so hide it there; the panel's
+  // own header carries the logo/reset meanwhile.
+  const hideHeader = isPanelOpen && isNarrow;
 
   // Decide the model once, before the Canvas mounts. useGLTF caches by URL, so
   // swapping it after load would refetch the whole thing; and resolving it in an
@@ -86,7 +102,9 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   }, []);
 
   return (
-    <main className="relative w-full h-dvh overflow-hidden bg-[#0b0b0c]">
+    <main className="relative w-full h-dvh overflow-hidden bg-[#cccccf] bg-[url('/foggy-street.jpg')] bg-cover bg-center">
+      {/* Background photo sits behind the transparent canvas. The flat colour
+          is the photo's own sky tone, so nothing flashes dark while it loads. */}
       {/* 3D Model Overlay. Boundary is deliberately INSIDE this wrapper so a
           WebGL failure only takes down the scene — the nav and panels above
           keep working rather than the whole client tree unwinding. */}
@@ -120,33 +138,50 @@ export default function SiteShell({ content }: { content: SiteContent }) {
           // On mobile the panel is a full-screen sheet, so a z-50 header would
           // sit on top of its content. Desktop keeps the header visible because
           // the panel only takes the right half.
-          opacity: isPanelOpen && isNarrow ? 0 : 1,
+          opacity: hideHeader ? 0 : 1,
         }}
-        style={{ pointerEvents: isPanelOpen && isNarrow ? 'none' : 'auto' }}
+        // The box itself never takes clicks: it's full-width and slides 25vw
+        // left with a half panel open, so it would sit invisibly over the
+        // panel's top-left and swallow clicks there (the panel logo, MGMT's
+        // prev button). Only the logo and nav opt back in.
+        style={{ pointerEvents: 'none' }}
         transition={{ type: 'tween', duration: 0.3, ease: 'easeInOut' }}
       >
-        <Image
-          src="/dA.png"
-          alt="Dead Air"
-          width={56}
-          height={55}
-          priority
-          className="w-11 h-auto sm:w-14 opacity-90"
-        />
+        {/* Client request: clicking the logo always resets the page. */}
+        <button
+          onClick={handleReset}
+          aria-label="deadAir — back to start"
+          className="cursor-pointer"
+          style={{ pointerEvents: hideHeader ? 'none' : 'auto' }}
+        >
+          <Image
+            src="/dA.png"
+            alt="Dead Air"
+            width={56}
+            height={55}
+            priority
+            // The logo file is white; invert rather than ship a second copy now
+            // that the site sits on a light background.
+            className="w-11 h-auto sm:w-14 opacity-90 invert"
+          />
+        </button>
 
-        <Navigation
-          selectedSection={selectedSection}
-          hoveredSection={hoveredSection}
-          onSectionClick={handleSectionClick}
-          onSectionHover={setHoveredSection}
-        />
+        <div style={{ pointerEvents: hideHeader ? 'none' : 'auto' }}>
+          <Navigation
+            selectedSection={selectedSection}
+            hoveredSection={hoveredSection}
+            onSectionClick={handleSectionClick}
+            onSectionHover={setHoveredSection}
+          />
+        </div>
       </motion.div>
 
       {/* Right Panel with content */}
       <RightPanel
         isOpen={isPanelOpen}
-        title={selectedSection?.toUpperCase() || ''}
+        title={selectedSection ? SECTION_LABELS[selectedSection].toUpperCase() : ''}
         onClose={handleClose}
+        onReset={handleReset}
       >
         {renderPanelContent()}
       </RightPanel>

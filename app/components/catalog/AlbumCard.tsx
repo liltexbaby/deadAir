@@ -31,7 +31,7 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
     >
       {/* Album art container */}
       <div
-        className="aspect-square relative border border-white/15 bg-white/[0.03] overflow-hidden"
+        className="aspect-square relative border border-black/15 bg-black/[0.03] overflow-hidden"
         onClick={() => coarse && setIsHovered((v) => !v)}
         role={coarse && release.links.length > 0 ? 'button' : undefined}
         aria-label={coarse && release.links.length > 0 ? `Show links for ${release.title}` : undefined}
@@ -45,7 +45,7 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
             className="object-cover"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center font-mono text-[10px] text-white/25">
+          <div className="absolute inset-0 flex items-center justify-center font-mono text-[10px] text-black/25">
             {release.catalogLabel}
           </div>
         )}
@@ -56,7 +56,7 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 bg-black/75 backdrop-blur-md flex flex-col items-center justify-center gap-2 p-4"
+            className="absolute inset-0 bg-white/75 backdrop-blur-md flex flex-col items-center justify-center gap-2 p-4"
           >
             {release.links.map((link) => (
               <a
@@ -64,7 +64,7 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-white/60 hover:text-white border-b border-white/10 hover:border-white/40 transition-colors text-center"
+                className="w-full py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-black/60 hover:text-black border-b border-black/10 hover:border-black/40 transition-colors text-center"
               >
                 {link.label}
               </a>
@@ -75,10 +75,10 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
 
       {/* Album info */}
       <div className="mt-2.5 font-mono">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-black/40">
           {release.catalogLabel} — {release.artist}
         </p>
-        <p className="text-xs text-white/90 mt-1">{release.title}</p>
+        <p className="text-xs text-black/90 mt-1">{release.title}</p>
       </div>
     </motion.div>
   );

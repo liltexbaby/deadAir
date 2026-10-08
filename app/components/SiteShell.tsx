@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type WheelEvent } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import ModelViewer from './ModelViewer';
@@ -10,12 +10,17 @@ import CatalogGrid from './catalog/CatalogGrid';
 import MgmtPanel from './panels/MgmtPanel';
 import LivePanel from './panels/LivePanel';
 
-import { SECTION_LABELS, STORE_URL, type Section } from '@/lib/sections';
+import { SECTIONS, SECTION_LABELS, STORE_URL, type Section } from '@/lib/sections';
 import type { SiteContent } from '@/lib/queries';
 import { useIsNarrow } from '@/lib/useCoarsePointer';
 import SceneLoader from './SceneLoader';
 import SceneErrorBoundary from './SceneErrorBoundary';
 import ClientErrorReporter from './ClientErrorReporter';
+
+// Scroll-to-next-shot (see handleWheel). null = the home shot.
+const SHOT_ORDER: (Section | null)[] = [null, ...SECTIONS.filter((s) => s !== 'store')];
+const WHEEL_STEP = 60;      // px of scroll before a gesture counts
+const WHEEL_GAP_MS = 250;   // a pause this long ends a gesture
 
 /**
  * All the interactive shell: 3D scene, nav, panel state. Content arrives as a
@@ -91,6 +96,39 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   // own header carries the logo/reset meanwhile.
   const hideHeader = isPanelOpen && isNarrow;
 
+  // Desktop: scrolling over the tower steps through the camera shots, in nav
+  // order, starting from home. STORE is skipped — it leaves the site.
+  //
+  // Forgiving by design: a gesture has to travel WHEEL_STEP px to count, and
+  // one gesture moves exactly one shot. A gesture ends after a WHEEL_GAP_MS
+  // pause, so a trackpad's inertial tail or a fast wheel spin can't skip
+  // several sections at once — scroll again to keep going. Scrolling over an
+  // open panel never reaches here; it scrolls the panel as usual.
+  const wheel = useRef({ accum: 0, last: 0, spent: false });
+  const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
+    if (isNarrow) return;
+    const g = wheel.current;
+    const now = performance.now();
+    if (now - g.last > WHEEL_GAP_MS) {
+      g.accum = 0;
+      g.spent = false;
+    }
+    g.last = now;
+    if (g.spent) return;
+
+    // Line-mode wheels (some Firefox setups) report lines, not pixels.
+    g.accum += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    if (Math.abs(g.accum) < WHEEL_STEP) return;
+    g.spent = true;
+
+    const i = SHOT_ORDER.indexOf(selectedSection);
+    const next = SHOT_ORDER[Math.min(Math.max(i + Math.sign(g.accum), 0), SHOT_ORDER.length - 1)];
+    if (next !== selectedSection) {
+      setSelectedSection(next);
+      setHoveredSection(null);
+    }
+  };
+
   // Decide the model once, before the Canvas mounts. useGLTF caches by URL, so
   // swapping it after load would refetch the whole thing; and resolving it in an
   // effect (rather than during render) keeps SSR and first client render
@@ -108,7 +146,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
       {/* 3D Model Overlay. Boundary is deliberately INSIDE this wrapper so a
           WebGL failure only takes down the scene — the nav and panels above
           keep working rather than the whole client tree unwinding. */}
-      <div className="absolute inset-0 z-10">
+      <div className="absolute inset-0 z-10" onWheel={handleWheel}>
         <SceneErrorBoundary>
           {modelUrl && (
             <ModelViewer

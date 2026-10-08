@@ -22,6 +22,8 @@ type PointerEvent3D = THREE.Event & {
   stopPropagation: () => void;
   /** R3F forwards the native pointer event, so we can tell touch from mouse. */
   pointerType?: string;
+  /** Px the pointer travelled between press and release (R3F; clicks only). */
+  delta: number;
 };
 
 /* ==========================================
@@ -562,6 +564,19 @@ const FOG_SHEET_FRAG = /* glsl */ `
 const HOVER_NUDGE = 0.02;      // how far to lean toward a section's camera on hover (0-1)
 const HOVER_RELEASE_MS = 100;   // delay before clearing hover, absorbs raycast flicker
 
+// ORBIT
+// Drag (mouse or one finger) to look around the shot a little. Deliberately
+// strict: the composition is the artist's, so this is a small parallax, not
+// free orbit. Rotates around the point the shot is centred on, rubber-bands
+// past the limit, and drifts back to the authored framing after release.
+const ORBIT_LIMIT_HOME = { yaw: 10, pitch: 4 };     // degrees either way
+const ORBIT_LIMIT_SECTION = { yaw: 4, pitch: 2 };
+const ORBIT_SENSITIVITY = 0.12;   // degrees per CSS px dragged
+const ORBIT_RETURN_DELAY = 1.2;   // seconds after release before drifting back
+const ORBIT_RETURN_SPEED = 1.5;   // higher = quicker drift back
+// Further than this between press and release is a drag, not a click.
+const CLICK_SLOP_PX = 6;
+
 /* ========================================== */
 
 const targetPos = new THREE.Vector3();
@@ -570,6 +585,34 @@ const hoverPos = new THREE.Vector3();
 const hoverQuat = new THREE.Quaternion();
 const subjectPos = new THREE.Vector3();
 const back = new THREE.Vector3();
+const orbitPivot = new THREE.Vector3();
+const orbitAxis = new THREE.Vector3();
+const orbitTurn = new THREE.Quaternion();
+const orbitPitch = new THREE.Quaternion();
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+// Distance from the resolved shot to its subject — the orbit's pivot radius.
+// Written by resolveShot, read by the orbit in the same frame.
+let shotSubjectDist = 1;
+
+/**
+ * Rotate a camera pose around the point it's centred on, `dist` ahead of it:
+ * yaw about world up, pitch about the camera's own right axis. Position and
+ * orientation turn together, so that point stays centred on screen.
+ */
+function applyOrbit(pos: THREE.Vector3, quat: THREE.Quaternion, yawDeg: number, pitchDeg: number, dist: number) {
+  if (yawDeg === 0 && pitchDeg === 0) return;
+  orbitPivot.set(0, 0, -1).applyQuaternion(quat).multiplyScalar(dist).add(pos);
+  orbitAxis.set(1, 0, 0).applyQuaternion(quat);
+  orbitPitch.setFromAxisAngle(orbitAxis, THREE.MathUtils.degToRad(pitchDeg));
+  orbitTurn.setFromAxisAngle(WORLD_UP, THREE.MathUtils.degToRad(yawDeg)).multiply(orbitPitch);
+  pos.sub(orbitPivot).applyQuaternion(orbitTurn).add(orbitPivot);
+  quat.premultiply(orbitTurn);
+}
+
+/** Soft clamp: linear near zero, easing into ±limit instead of a hard stop. */
+function rubberBand(value: number, limit: number): number {
+  return limit * Math.tanh(value / limit);
+}
 
 interface CameraRigProps {
   scene: THREE.Object3D;
@@ -635,14 +678,15 @@ function resolveShot(
   const dolly = narrow
     ? (home ? HOME_DOLLY_NARROW : SECTION_DOLLY_NARROW)
     : (home ? HOME_DOLLY : SECTION_DOLLY);
+  const subject = (active && scene.getObjectByName(`hit_${active}`)) || scene;
+  subject.getWorldPosition(subjectPos);
+  const dist = targetPos.distanceTo(subjectPos);
   if (dolly !== 1) {
-    const subject = (active && scene.getObjectByName(`hit_${active}`)) || scene;
-    subject.getWorldPosition(subjectPos);
-    const dist = targetPos.distanceTo(subjectPos);
     // Local +Z is behind a three.js camera (they look down -Z).
     back.set(0, 0, 1).applyQuaternion(targetQuat);
     targetPos.addScaledVector(back, dist * (dolly - 1));
   }
+  shotSubjectDist = dist * dolly;
 
   // The GLB carries the FOV each shot was framed with (cam_home 44.1deg, the
   // section cameras 22.9deg). Previously all of this was discarded and
@@ -670,6 +714,61 @@ function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
   // dirty and the view offset gets applied before anything is presented.
   const framing = useRef({ fov: -1, panX: 0, panY: 0, w: 0, h: 0 });
   const camera = useThree((s) => s.camera);
+  const gl = useThree((s) => s.gl);
+
+  // Orbit offsets in degrees. `raw` follows the pointer, unclamped; yaw/pitch
+  // ease toward its rubber-banded value and back to 0 after release.
+  const orbit = useRef({
+    yaw: 0, pitch: 0, rawYaw: 0, rawPitch: 0,
+    dragging: false, pointerId: -1, lastX: 0, lastY: 0, releasedAt: -Infinity,
+  });
+
+  useEffect(() => {
+    const el = gl.domElement;
+    const o = orbit.current;
+    const down = (e: PointerEvent) => {
+      // One pointer only — a second finger shouldn't hijack the drag.
+      if (!e.isPrimary || o.dragging) return;
+      o.dragging = true;
+      o.pointerId = e.pointerId;
+      o.lastX = e.clientX;
+      o.lastY = e.clientY;
+      // Keep the drag even if the pointer leaves the canvas mid-gesture.
+      el.setPointerCapture?.(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      if (!o.dragging || e.pointerId !== o.pointerId) return;
+      // Drag right turns the scene right (camera swings left); drag down
+      // lifts the camera to look down — the usual orbit-control feel.
+      o.rawYaw -= (e.clientX - o.lastX) * ORBIT_SENSITIVITY;
+      o.rawPitch -= (e.clientY - o.lastY) * ORBIT_SENSITIVITY;
+      o.lastX = e.clientX;
+      o.lastY = e.clientY;
+    };
+    const up = (e: PointerEvent) => {
+      if (e.pointerId !== o.pointerId) return;
+      o.dragging = false;
+      o.pointerId = -1;
+      o.releasedAt = performance.now() / 1000;
+    };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    return () => {
+      el.removeEventListener('pointerdown', down);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+  }, [gl]);
+
+  // A new shot starts from its own composition, not the last one's tilt.
+  useEffect(() => {
+    const o = orbit.current;
+    o.rawYaw = 0;
+    o.rawPitch = 0;
+  }, [active]);
 
   // Place the camera during commit, before the browser paints.
   //
@@ -720,6 +819,23 @@ function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
         targetQuat.slerp(hoverQuat, HOVER_NUDGE);
       }
     }
+
+    // Constrained orbit. While idle after a release, wind the raw offset back
+    // toward 0; the rubber band keeps it inside the shot's limits either way.
+    const o = orbit.current;
+    if (!o.dragging && performance.now() / 1000 - o.releasedAt > ORBIT_RETURN_DELAY) {
+      const decay = Math.exp(-ORBIT_RETURN_SPEED * dt);
+      o.rawYaw *= decay;
+      o.rawPitch *= decay;
+    }
+    const limit = active ? ORBIT_LIMIT_SECTION : ORBIT_LIMIT_HOME;
+    // Keep the raw value from running away past the band, so reversing a
+    // long over-drag responds immediately instead of unwinding dead travel.
+    o.rawYaw = THREE.MathUtils.clamp(o.rawYaw, -limit.yaw * 2, limit.yaw * 2);
+    o.rawPitch = THREE.MathUtils.clamp(o.rawPitch, -limit.pitch * 2, limit.pitch * 2);
+    o.yaw = rubberBand(o.rawYaw, limit.yaw);
+    o.pitch = rubberBand(o.rawPitch, limit.pitch);
+    applyOrbit(targetPos, targetQuat, o.yaw, o.pitch, shotSubjectDist);
 
     const k = 1 - Math.pow(0.001, dt);
     if (firstFrame) {
@@ -1311,6 +1427,11 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover, modelUrl }:
           onPointerOut={handleOut}
           onClick={(e: PointerEvent3D) => {
             e.stopPropagation();
+            // An orbit drag that ends over a hit proxy still fires a click
+            // (R3F filters drags out of onPointerMissed, not onClick). Without
+            // this, dragging inside the MGMT close-up and releasing over the
+            // MGMT proxy toggled the panel shut. e.delta = px moved since press.
+            if (e.delta > CLICK_SLOP_PX) return;
             const userData = e.object.userData as Partial<HitProxyUserData>;
             if (userData.section) onNavigate(userData.section);
           }}
@@ -1465,6 +1586,8 @@ export default function ModelViewer({
         // Nearest-neighbour only while pixelated; on home the browser's normal
         // filtered downscale of the 2x canvas is what anti-aliases it.
         style={{ background: 'transparent', imageRendering: pixelated ? 'pixelated' : 'auto' }}
+        // R3F only reports a miss when the pointer barely moved (<= 2px), so
+        // ending an orbit drag over empty space doesn't close the panel.
         onPointerMissed={onClose}
         // 'demand' renders only when something calls invalidate() — FrameThrottle
         // below does that at a fixed rate. Animations still advance correctly

@@ -23,9 +23,13 @@ export interface ManagedArtistDTO {
   name: string;
   externalLabel: string | null;
   imageUrl: string | null;
-  contacts: { role: string; label: string; name: string | null; email: string | null; url: string | null }[];
-  /** Pre-filled mail for this artist's contact links; null = site default. */
-  emailSubject: string | null;
+  /**
+   * No addresses: visitors reach an email contact through the contact form
+   * (app/actions/inquiry.ts resolves the address server-side), so they stay
+   * out of the page HTML. `messageable` marks the roles the form can target.
+   */
+  contacts: { role: string; label: string; name: string | null; url: string | null; messageable: boolean }[];
+  /** Message-box prompt for this artist ({artist} -> name); null = default. */
   emailBody: string | null;
 }
 
@@ -168,10 +172,9 @@ export async function getRosters(): Promise<{
         role: c.role,
         label: CONTACT_ROLE_LABELS[c.role] ?? c.role,
         name: c.name,
-        email: c.email,
         url: c.url,
+        messageable: Boolean(c.email),
       })),
-    emailSubject: row.email_subject ?? null,
     emailBody: row.email_body ?? null,
   });
 

@@ -145,8 +145,9 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
             <div className="flex items-center gap-4">
               {/* The page header (and its logo) is hidden behind the full-screen
                   phone sheet, so the logo's reset lives here too — "clicking
-                  the dA logo always resets the page". */}
-              <button onClick={onReset} aria-label="deadAir — back to start" className="-m-1 p-1 cursor-pointer">
+                  the dA logo always resets the page". Phone only: on desktop the
+                  page header stays visible beside the panel, logo and all. */}
+              <button onClick={onReset} aria-label="deadAir — back to start" className="sm:hidden -m-1 p-1 cursor-pointer">
                 <Image src="/dA.png" alt="" width={56} height={55} className="w-6 h-auto opacity-80 invert" />
               </button>
               {/* Keyed so a section change re-runs the flicker on the new name. */}

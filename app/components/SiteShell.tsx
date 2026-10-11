@@ -135,8 +135,12 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   // identical, so there's nothing for hydration to mismatch on.
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   useEffect(() => {
-    const small = window.matchMedia('(max-width: 639px)').matches;
-    setModelUrl(small ? '/DA.mobile.glb' : '/DA.glb');
+    // The lighter 1K-texture tower everywhere; dev-only ?fulltower loads the
+    // full desktop one for comparison (see useFullTowerPreview in ModelViewer).
+    const full =
+      process.env.NODE_ENV !== 'production' &&
+      new URLSearchParams(window.location.search).has('fulltower');
+    setModelUrl(full ? '/DA.glb' : '/DA.mobile.glb');
   }, []);
 
   return (

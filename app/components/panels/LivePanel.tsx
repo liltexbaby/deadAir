@@ -11,9 +11,6 @@ const STATUS_LABELS: Record<string, string> = {
   on_sale: 'on sale',
 };
 
-const SWIPE_DISTANCE = 50;   // px of drag that counts as a deliberate swipe
-const SWIPE_VELOCITY = 400;  // ...or a flick this fast, however short
-
 type Tab = 'present' | 'past';
 
 /**
@@ -54,8 +51,10 @@ function EventMeta({ event }: { event: EventDTO }) {
 
   return (
     <>
+      {/* Artist leads, tour name underneath. Promo entries with no artist
+          fall back to the title as the headline. */}
       <div className="flex items-baseline gap-3">
-        <h3 className="font-mono text-xs text-black/90">{event.title}</h3>
+        <h3 className="font-mono text-xs text-black/90">{event.artist ?? event.title}</h3>
         {statusLabel && (
           <span
             className={`font-mono text-[9px] uppercase tracking-[0.2em] ${
@@ -69,7 +68,7 @@ function EventMeta({ event }: { event: EventDTO }) {
 
       {event.artist && (
         <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.15em] text-black/35">
-          {event.artist}
+          {event.title}
         </p>
       )}
 
@@ -138,8 +137,8 @@ function Poster({ event, sizes }: { event: EventDTO; sizes: string }) {
  * scroll. Hovering an event swaps the poster; clicking one pins it so the
  * poster stays put when the pointer leaves the menu.
  *
- * Phone: just the poster, with swipe and prev/next to move between events and
- * the details underneath.
+ * Phone: a vertical feed — every event's poster at full panel width with its
+ * details underneath, scrolled with the panel.
  */
 export default function LivePanel({ events }: { events: EventDTO[] }) {
   const groups = split(events);
@@ -149,7 +148,6 @@ export default function LivePanel({ events }: { events: EventDTO[] }) {
   );
   const [pinned, setPinned] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [index, setIndex] = useState(0);   // phone carousel position
 
   const list = groups[tab];
 
@@ -165,14 +163,10 @@ export default function LivePanel({ events }: { events: EventDTO[] }) {
     setTab(next);
     setPinned(null);
     setHovered(null);
-    setIndex(0);
   };
 
   const active =
     list.find((e) => e.id === hovered) ?? list.find((e) => e.id === pinned) ?? list[0] ?? null;
-
-  const current = list[Math.min(index, Math.max(list.length - 1, 0))] ?? null;
-  const go = (next: number) => setIndex(Math.min(Math.max(next, 0), Math.max(list.length - 1, 0)));
 
   const tabs = (
     <div role="tablist" className="flex gap-5 border-b border-black/10 pb-3">
@@ -251,51 +245,41 @@ export default function LivePanel({ events }: { events: EventDTO[] }) {
 
       {/* ------------------------------------------------------------ phone */}
       <div className="sm:hidden">
-        {tabs}
-        {!current ? (
+        {/* Sticky so either tab is one tap away from anywhere in a long feed.
+            -top/-mx cancel the panel's padding so it pins flush to the panel
+            header. Near-opaque: dark posters scrolling under a lighter tint
+            turned the bar a muddy grey. */}
+        <div className="sticky -top-5 z-10 -mx-5 -mt-5 bg-white/85 px-5 pt-5 backdrop-blur-xl">{tabs}</div>
+        {list.length === 0 ? (
           empty
         ) : (
-          <>
-            <div className="mt-4 flex items-center justify-between">
-              <button
-                onClick={() => go(index - 1)}
-                disabled={index === 0}
-                aria-label="Previous event"
-                className="-my-3 py-3 pr-3 font-mono text-[11px] uppercase tracking-[0.2em] text-black/45 disabled:text-black/15 cursor-pointer"
-              >
-                ‹ prev
-              </button>
-              <span aria-live="polite" className="font-mono text-[10px] tabular-nums text-black/55">
-                {String(index + 1).padStart(2, '0')} / {String(list.length).padStart(2, '0')}
-              </span>
-              <button
-                onClick={() => go(index + 1)}
-                disabled={index >= list.length - 1}
-                aria-label="Next event"
-                className="-my-3 py-3 pl-3 font-mono text-[11px] uppercase tracking-[0.2em] text-black/45 disabled:text-black/15 cursor-pointer"
-              >
-                next ›
-              </button>
-            </div>
-
-            <motion.div
-              className="relative mt-4 h-[58dvh] touch-pan-y"
-              drag="x"
-              dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={0.15}
-              onDragEnd={(_, info) => {
-                const { offset, velocity } = info;
-                if (offset.x < -SWIPE_DISTANCE || velocity.x < -SWIPE_VELOCITY) go(index + 1);
-                else if (offset.x > SWIPE_DISTANCE || velocity.x > SWIPE_VELOCITY) go(index - 1);
-              }}
-            >
-              <Poster event={current} sizes="100vw" />
-            </motion.div>
-
-            <div className="mt-5">
-              <EventMeta event={current} />
-            </div>
-          </>
+          <ul className="divide-y divide-black/10">
+            {list.map((event) => (
+              <li key={event.id} className="py-6">
+                {event.imageUrl ? (
+                  <Image
+                    src={event.imageUrl}
+                    alt={event.title}
+                    // Real size is unknown; these only set the placeholder
+                    // ratio (posters are ~3:4) until the file loads.
+                    width={900}
+                    height={1200}
+                    sizes="100vw"
+                    className="h-auto w-full"
+                  />
+                ) : (
+                  <div className="flex aspect-[3/4] w-full items-center justify-center border border-black/10">
+                    <span className="px-6 text-center font-mono text-sm uppercase tracking-[0.2em] text-black/40">
+                      {event.title}
+                    </span>
+                  </div>
+                )}
+                <div className="mt-4">
+                  <EventMeta event={event} />
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </>

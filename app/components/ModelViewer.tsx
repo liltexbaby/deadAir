@@ -2,7 +2,7 @@
 
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, useAnimations, Environment, ContactShadows } from '@react-three/drei';
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 
 import type { Section } from '@/lib/sections';
@@ -139,6 +139,28 @@ const PIXEL_SIZE = 2;
 // camera is still flying.
 const PIXEL_STEPS = 4;
 const PIXEL_STEP_MS = 90;
+
+// LOAD-IN REVEAL (see PixelReveal). When the tower finishes loading it
+// materialises rather than popping in: the canvas starts at REVEAL_PIXEL_SIZE
+// blocks and steps down to the home grain (the same stepped transition as
+// above), while a hard-edged grid of REVEAL_CELL_PX cells blinks in.
+// Slow on purpose: it should feel like something surfacing out of the fog,
+// not a UI transition.
+const REVEAL_PIXEL_SIZE = 24;     // CSS px per block at the first frame
+const REVEAL_PIXEL_STEPS = 8;     // block-size steps down to the home grain...
+const REVEAL_PIXEL_STEP_MS = 280; // ...this far apart (~2.2s in all)
+const REVEAL_CELL_PX = 10;        // dissolve cell, CSS px
+const REVEAL_SECONDS = 2.6;
+// 0 = cells appear in pure random order; 1 = a clean ring from the centre out.
+const REVEAL_CENTER_BIAS = 0.2;
+// Cells this close to arriving flicker on and off, like a bad signal, before
+// they hold. Width in progress units, and flicker rate in Hz.
+const REVEAL_FLICKER_BAND = 0.12;
+const REVEAL_FLICKER_HZ = 14;
+// It also emerges: arrived cells start see-through and firm up, and the
+// camera starts this much further out (as a fraction of its distance to the
+// tower) and drifts in, slowing as it arrives.
+const REVEAL_PUSH = 0.4;
 
 // SHADOW SETTINGS
 const SHADOW_OPACITY = 0.55;
@@ -593,6 +615,9 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0);
 // Distance from the resolved shot to its subject — the orbit's pivot radius.
 // Written by resolveShot, read by the orbit in the same frame.
 let shotSubjectDist = 1;
+// Load-in drift: extra camera distance as a fraction of shotSubjectDist.
+// Written by PixelReveal (starts at REVEAL_PUSH, eases to 0), read by the rig.
+let revealPush = 0;
 
 /**
  * Rotate a camera pose around the point it's centred on, `dist` ahead of it:
@@ -693,6 +718,119 @@ function resolveShot(
   // everything rendered at R3F's default 75deg.
   const fov = target instanceof THREE.PerspectiveCamera ? target.fov : FOV_FALLBACK;
   return fov + liveTrims[shot].fov;
+}
+
+const REVEAL_VERT = /* glsl */ `
+  void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
+// Scales what's already drawn by (1 - alpha): alpha 1 erases a cell to
+// transparent, so the background photo shows through; less than 1 leaves it
+// partly see-through. The canvas is premultiplied, so colour and alpha scale
+// together.
+const REVEAL_FRAG = /* glsl */ `
+  uniform float uProgress;
+  uniform float uFade;        // 0..1 opacity of arrived cells
+  uniform float uTime;
+  uniform float uCell;        // cell size in drawing-buffer px
+  uniform vec2 uResolution;
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  void main() {
+    vec2 cell = floor(gl_FragCoord.xy / uCell);
+    vec2 centre = (cell * uCell + 0.5 * uCell) / uResolution - 0.5;
+    float dist = clamp(length(centre * vec2(uResolution.x / uResolution.y, 1.0)) * 1.4, 0.0, 1.0);
+    float threshold = mix(hash(cell), dist, ${REVEAL_CENTER_BIAS.toFixed(2)});
+    float lead = uProgress - threshold;     // > 0: arrived, < 0: still to come
+    float erase = 1.0;
+    if (lead > ${REVEAL_FLICKER_BAND.toFixed(2)}) {
+      erase = 1.0 - uFade;
+    } else if (lead > -${REVEAL_FLICKER_BAND.toFixed(2)}) {
+      // In the band: on or off per cell per flicker tick, increasingly likely
+      // on the closer it is to arriving.
+      float tick = floor(uTime * ${REVEAL_FLICKER_HZ.toFixed(1)});
+      float chance = 0.5 + 0.5 * lead / ${REVEAL_FLICKER_BAND.toFixed(2)};
+      if (hash(cell + tick * 17.31) < chance) erase = 1.0 - uFade;
+    }
+    if (erase <= 0.0) discard;
+    gl_FragColor = vec4(0.0, 0.0, 0.0, erase);
+  }
+`;
+
+/**
+ * Load-in dissolve. Mounted inside the same Suspense as the model, so it
+ * starts the moment everything has loaded: a full-screen quad drawn last that
+ * erases the cells that haven't "arrived" yet, then unmounts itself.
+ */
+function PixelReveal({ onStart, onDone }: { onStart: () => void; onDone: () => void }) {
+  const gl = useThree((s) => s.gl);
+  const elapsed = useRef(0);
+  const finished = useRef(false);
+  const material = useRef<THREE.ShaderMaterial>(null);
+  const uniforms = useMemo(
+    () => ({
+      uProgress: { value: 0 },
+      uFade: { value: 0 },
+      uTime: { value: 0 },
+      uCell: { value: REVEAL_CELL_PX },
+      uResolution: { value: new THREE.Vector2(1, 1) },
+    }),
+    [],
+  );
+  useEffect(() => {
+    // Set here, not at module load, so a remount (e.g. a fast refresh)
+    // starts pulled back again.
+    revealPush = REVEAL_PUSH;
+    onStart();
+    return () => {
+      revealPush = 0;
+    };
+  }, [onStart]);
+
+  useFrame((_, delta) => {
+    if (finished.current) return;
+    // Clamped: the first frames after load can hitch on shader compiles, and
+    // a 300ms delta would skip half the reveal.
+    elapsed.current += Math.min(delta, 1 / 30);
+    const t = Math.min(elapsed.current / REVEAL_SECONDS, 1);
+    if (!material.current) return;
+    const u = material.current.uniforms;
+    // Ease in-out, overshooting 1 by the flicker band so the last cells
+    // finish flickering and settle before the quad unmounts.
+    const eased = t * t * (3 - 2 * t);
+    u.uProgress.value = eased * (1 + 2 * REVEAL_FLICKER_BAND);
+    u.uTime.value = elapsed.current;
+    // Opacity trails the dissolve a little and is solid just before the end.
+    const f = Math.min(t / 0.9, 1);
+    u.uFade.value = f * f * (3 - 2 * f);
+    // Camera drift: ease-out cubic, so it glides in and slows to a stop.
+    revealPush = REVEAL_PUSH * Math.pow(1 - t, 3);
+    u.uCell.value = REVEAL_CELL_PX * gl.getPixelRatio();
+    gl.getDrawingBufferSize(u.uResolution.value);
+    if (t >= 1) {
+      finished.current = true;
+      onDone();
+    }
+  });
+
+  return (
+    <mesh frustumCulled={false} renderOrder={1e6}>
+      <planeGeometry args={[2, 2]} />
+      <shaderMaterial
+        ref={material}
+        vertexShader={REVEAL_VERT}
+        fragmentShader={REVEAL_FRAG}
+        uniforms={uniforms}
+        transparent
+        depthTest={false}
+        depthWrite={false}
+        blending={THREE.CustomBlending}
+        blendEquation={THREE.AddEquation}
+        blendSrc={THREE.ZeroFactor}
+        blendDst={THREE.OneMinusSrcAlphaFactor}
+        blendSrcAlpha={THREE.ZeroFactor}
+        blendDstAlpha={THREE.OneMinusSrcAlphaFactor}
+      />
+    </mesh>
+  );
 }
 
 /**
@@ -836,6 +974,12 @@ function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
     o.yaw = rubberBand(o.rawYaw, limit.yaw);
     o.pitch = rubberBand(o.rawPitch, limit.pitch);
     applyOrbit(targetPos, targetQuat, o.yaw, o.pitch, shotSubjectDist);
+
+    // Load-in: pulled back along the view direction, drifting in (PixelReveal).
+    if (revealPush > 0) {
+      back.set(0, 0, 1).applyQuaternion(targetQuat);
+      targetPos.addScaledVector(back, shotSubjectDist * revealPush);
+    }
 
     const k = 1 - Math.pow(0.001, dt);
     if (firstFrame) {
@@ -1321,6 +1465,7 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover, modelUrl }:
   const releaseTimer = useRef<number | null>(null);
   const coarse = useCoarsePointer();
   const isNarrow = useIsNarrow();
+  const liteLighting = !useFullTowerPreview();
 
   // Publish 3D hover upward so the nav labels light up in step with the tower.
   // Held in a ref so a re-created callback can't retrigger the effect.
@@ -1437,7 +1582,7 @@ function Scene({ activeSection, hoveredSection, onNavigate, onHover, modelUrl }:
           }}
         />
       </group>
-      <PracticalLights scene={scene} reduced={coarse} />
+      <PracticalLights scene={scene} reduced={liteLighting} />
       <RadioWaves scene={scene} />
       <LightBeams scene={scene} />
       <FogLayers scene={scene} />
@@ -1483,6 +1628,23 @@ function usePixelSize(param: string, fallback: number): number {
   );
 }
 
+/**
+ * Everyone gets the lighter tower: the 1K-texture GLB and the simple lighting
+ * rig (no HDR environment, one practical light, lifted ambient/key) — it looks
+ * better and costs far less. Dev-only `?fulltower` brings back the full
+ * desktop version (4K GLB, environment map, every fixture) for comparison;
+ * SiteShell swaps the GLB on the same flag.
+ */
+function useFullTowerPreview(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () =>
+      process.env.NODE_ENV !== 'production' &&
+      new URLSearchParams(window.location.search).has('fulltower'),
+    () => false,
+  );
+}
+
 type Dpr = number | [number, number];
 
 /**
@@ -1490,7 +1652,12 @@ type Dpr = number | [number, number];
  * 0 for smooth. Changes step through PIXEL_STEPS intermediate resolutions
  * instead of snapping.
  */
-function usePixelTransition(target: number, coarse: boolean): { dpr: Dpr; pixelated: boolean } {
+function usePixelTransition(
+  target: number,
+  coarse: boolean,
+  steps = PIXEL_STEPS,
+  stepMs = PIXEL_STEP_MS,
+): { dpr: Dpr; pixelated: boolean } {
   // The canvas has no MSAA (it would soften the section blocks), so home is
   // smoothed by supersampling: desktop always renders at 2x, which a 1x
   // monitor's filtered downscale turns into anti-aliasing and a retina screen
@@ -1510,18 +1677,21 @@ function usePixelTransition(target: number, coarse: boolean): { dpr: Dpr; pixela
     if (Math.abs(from - to) < 1e-3) return;
 
     const timers: number[] = [];
-    for (let i = 1; i <= PIXEL_STEPS; i++) {
-      const last = i === PIXEL_STEPS;
+    for (let i = 1; i <= steps; i++) {
+      const last = i === steps;
       // Geometric, so each step changes block size by the same ratio.
-      const value = last ? (target > 0 ? to : null) : from * Math.pow(to / from, i / PIXEL_STEPS);
+      const value = last ? (target > 0 ? to : null) : from * Math.pow(to / from, i / steps);
       timers.push(
         window.setTimeout(() => {
           current.current = value;
           setStep(value);
-        }, i * PIXEL_STEP_MS),
+        }, i * stepMs),
       );
     }
     return () => timers.forEach((t) => clearTimeout(t));
+    // steps/stepMs deliberately left out: they only shape the next change of
+    // target, and re-running on them would cancel a transition mid-way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, smoothMax, coarse]);
 
   return { dpr: step ?? smooth, pixelated: step !== null };
@@ -1546,10 +1716,27 @@ export default function ModelViewer({
 }: ModelViewerProps) {
   const coarse = useCoarsePointer();
   const isNarrow = useIsNarrow();
+  const liteLighting = !useFullTowerPreview();
   const tuning = useCameraTuning();
   const homePixel = usePixelSize('homepixel', HOME_PIXEL_SIZE);
   const sectionPixel = usePixelSize('pixel', PIXEL_SIZE);
-  const { dpr, pixelated } = usePixelTransition(activeSection ? sectionPixel : homePixel, coarse);
+  // 'waiting' until the model has loaded, 'revealing' during the load-in
+  // dissolve, then 'done'. Until the reveal starts the canvas sits at chunky
+  // REVEAL_PIXEL_SIZE blocks, so the first thing seen resolves down from them.
+  const [reveal, setReveal] = useState<'waiting' | 'revealing' | 'done'>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? 'done'
+      : 'waiting',
+  );
+  const startReveal = useCallback(() => setReveal('revealing'), []);
+  const endReveal = useCallback(() => setReveal('done'), []);
+  const { dpr, pixelated } = usePixelTransition(
+    reveal === 'waiting' ? REVEAL_PIXEL_SIZE : activeSection ? sectionPixel : homePixel,
+    coarse,
+    // The load-in resolve is slower and finer-stepped than a section change.
+    reveal === 'done' ? PIXEL_STEPS : REVEAL_PIXEL_STEPS,
+    reveal === 'done' ? PIXEL_STEP_MS : REVEAL_PIXEL_STEP_MS,
+  );
 
   // Throttle — do NOT stop — the render loop while a mobile panel is open.
   //
@@ -1608,12 +1795,12 @@ export default function ModelViewer({
               the scene, but lifted on mobile to compensate for the missing HDR
               and the reduced practical lights. */}
           <ambientLight
-            intensity={coarse ? AMBIENT_LIGHT_MOBILE : AMBIENT_LIGHT}
+            intensity={liteLighting ? AMBIENT_LIGHT_MOBILE : AMBIENT_LIGHT}
             color={AMBIENT_COLOR}
           />
           <directionalLight
             position={KEY_LIGHT_POSITION}
-            intensity={coarse ? KEY_LIGHT_INTENSITY_MOBILE : KEY_LIGHT_INTENSITY}
+            intensity={liteLighting ? KEY_LIGHT_INTENSITY_MOBILE : KEY_LIGHT_INTENSITY}
             color={KEY_LIGHT_COLOR}
           />
 
@@ -1622,7 +1809,7 @@ export default function ModelViewer({
               raw.githack.com at runtime — a dev CDN, not production infra.
               Skipped entirely on touch, where a hemisphere light stands in for
               a fraction of the cost and payload. */}
-          {coarse ? (
+          {liteLighting ? (
             <hemisphereLight
               args={[ENV_FALLBACK_SKY, ENV_FALLBACK_GROUND, ENV_FALLBACK_INTENSITY]}
             />
@@ -1638,6 +1825,7 @@ export default function ModelViewer({
             onHover={onHover}
             modelUrl={modelUrl}
           />
+          {reveal !== 'done' && <PixelReveal onStart={startReveal} onDone={endReveal} />}
 
           {/* Ground shadow. drei defaults to frames={Infinity}, which re-renders
               the scene into a 512² depth target plus four blur passes EVERY

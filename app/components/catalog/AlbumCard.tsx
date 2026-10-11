@@ -1,13 +1,24 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useState } from 'react';
 import Image from 'next/image';
 import type { ReleaseDTO } from '@/lib/queries';
 import { useCoarsePointer } from '@/lib/useCoarsePointer';
 
-export default function AlbumCard({ release }: { release: ReleaseDTO }) {
-  const [isHovered, setIsHovered] = useState(false);
+/**
+ * `isHovered` lives in CatalogGrid so only one card is ever open: on touch,
+ * where taps toggle it, each card used to keep its own and every tapped card
+ * stayed lit.
+ */
+export default function AlbumCard({
+  release,
+  isHovered,
+  setIsHovered,
+}: {
+  release: ReleaseDTO;
+  isHovered: boolean;
+  setIsHovered: (open: boolean) => void;
+}) {
   const coarse = useCoarsePointer();
 
   // Tailwind v4 wraps every `hover:` utility in @media (hover: hover), and this
@@ -32,7 +43,7 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
       {/* Album art container */}
       <div
         className="aspect-square relative border border-black/15 bg-black/[0.03] overflow-hidden"
-        onClick={() => coarse && setIsHovered((v) => !v)}
+        onClick={() => coarse && setIsHovered(!isHovered)}
         role={coarse && release.links.length > 0 ? 'button' : undefined}
         aria-label={coarse && release.links.length > 0 ? `Show links for ${release.title}` : undefined}
       >
@@ -73,13 +84,31 @@ export default function AlbumCard({ release }: { release: ReleaseDTO }) {
         )}
       </div>
 
-      {/* Album info */}
-      <div className="mt-2.5 font-mono">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-black/40">
-          {release.catalogLabel} — {release.artist}
-        </p>
-        <p className="text-xs text-black/90 mt-1">{release.title}</p>
+      {/* Album info. On hover it gets the MGMT roster's NieR-style selection:
+          a dark bar wipes in from the left over a light copy of the text, so
+          the text flips exactly where the bar's edge passes. */}
+      <div className="relative mt-2 font-mono">
+        <AlbumInfo release={release} />
+        <div
+          aria-hidden
+          className={`absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            isHovered ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
+          }`}
+        >
+          <AlbumInfo release={release} inverted />
+        </div>
       </div>
     </motion.div>
+  );
+}
+
+function AlbumInfo({ release, inverted = false }: { release: ReleaseDTO; inverted?: boolean }) {
+  return (
+    <div className="px-2 py-1.5">
+      <p className={`text-[10px] uppercase tracking-[0.2em] ${inverted ? 'text-white/60' : 'text-black/40'}`}>
+        {release.artist}
+      </p>
+      <p className={`mt-1 text-xs ${inverted ? 'text-white' : 'text-black/90'}`}>{release.title}</p>
+    </div>
   );
 }

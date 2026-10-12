@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 import type { ManagedArtistDTO } from '@/lib/queries';
 import InquiryForm, { EMPTY_DRAFT, type InquiryDraft } from './InquiryForm';
+import PixelPortrait from './PixelPortrait';
 
 const SWIPE_DISTANCE = 50;   // px of drag that counts as a deliberate swipe
 const SWIPE_VELOCITY = 400;  // ...or a flick this fast, however short
@@ -198,30 +198,13 @@ export default function MgmtPanel({
 
       {active && (
         <div className="@container min-h-0 overflow-y-auto overscroll-contain">
-          {/* Square frame, crossfading between artists like the LIVE poster.
-              Fills the column; the column scrolls if the form runs past. */}
+          {/* Square frame; artists change with a pixel break-up / resolve
+              (PixelPortrait). Fills the column; the column scrolls if the
+              form runs past. */}
           <div className="relative aspect-square w-full border border-black/10">
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.div
-                key={active.id}
-                className="absolute inset-0"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.25 }}
-              >
-                {active.imageUrl && (
-                  <Image
-                    src={active.imageUrl}
-                    alt=""
-                    fill
-                    sizes="(min-width: 640px) 30vw, 100vw"
-                    // Pixel art: keep the edges hard when scaled up.
-                    className="object-cover [image-rendering:pixelated]"
-                  />
-                )}
-              </motion.div>
-            </AnimatePresence>
+            {active.imageUrl && (
+              <PixelPortrait src={active.imageUrl} sizes="(min-width: 640px) 30vw, 100vw" />
+            )}
           </div>
 
           <div className="mt-5 flex items-baseline gap-3">
@@ -323,21 +306,16 @@ export default function MgmtPanel({
               className="w-full shrink-0 select-none"
             >
               {artist.imageUrl && (
-                <Image
-                  src={artist.imageUrl}
-                  alt=""
-                  width={640}
-                  height={640}
-                  draggable={false}
-                  // The panel is half-width on desktop and full-width on a
-                  // phone; without this next/image would size for the whole
-                  // viewport and ship a needlessly large file on desktop.
-                  sizes="(min-width: 640px) 50vw, 100vw"
-                  // Sources are square, so a square box crops nothing.
-                  // They're also pixel art — smoothing them defeats the look,
-                  // and upscaling to the full panel width is the point.
-                  className="mb-5 aspect-square w-full border border-black/10 object-cover [image-rendering:pixelated]"
-                />
+                // Sources are square, so a square box crops nothing. Only the
+                // slide in view pixels in; the one leaving pixels out.
+                <div className="relative mb-5 aspect-square w-full border border-black/10">
+                  <PixelPortrait
+                    src={artist.imageUrl}
+                    // The panel is full-width on a phone.
+                    sizes="100vw"
+                    active={i === index}
+                  />
+                </div>
               )}
 
               <div className="flex items-baseline gap-3">

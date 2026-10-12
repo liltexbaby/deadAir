@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #cccccf;   /* foggy-street.jpg sky tone */
+  --background: #f6f3ee;   /* bg-power-lines-light.jpg sky tone */
   --foreground: #171717;
 }
 

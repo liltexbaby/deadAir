@@ -483,8 +483,9 @@ const BEAM_FRAG = /* glsl */ `
    Blender's Volume shaders can't do any of this: volumetrics don't
    survive glTF export at all.
 ------------------------------------------ */
-// Display-space RGB (0-255) sampled off foggy-street.jpg at tower height.
-const FOG_COLOR = [201, 200, 201];
+// Display-space RGB (0-255) sampled off bg-power-lines-light.jpg at tower
+// height (the hazy band behind the poles).
+const FOG_COLOR = [235, 231, 226];
 // Distance fog range, in tower heights from the camera. The home camera sits
 // ~2.3H out, so the near face barely fogs and the far side and top thin out;
 // section cameras sit well inside FOG_NEAR and stay clear.

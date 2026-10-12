@@ -112,7 +112,7 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
           initial="closed"
           animate="open"
           exit="closed"
-          className="pointer-events-none fixed top-0 right-0 w-full sm:w-1/2 z-30 bg-[#cccccf] h-[calc(env(safe-area-inset-top,0px)*2)]"
+          className="pointer-events-none fixed top-0 right-0 w-full sm:w-1/2 z-30 bg-[#f6f3ee] h-[calc(env(safe-area-inset-top,0px)*2)]"
         />
       )}
 

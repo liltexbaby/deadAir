@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type WheelEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type WheelEvent } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import ModelViewer from './ModelViewer';
@@ -16,6 +16,19 @@ import { useIsNarrow } from '@/lib/useCoarsePointer';
 import SceneLoader from './SceneLoader';
 import SceneErrorBoundary from './SceneErrorBoundary';
 import ClientErrorReporter from './ClientErrorReporter';
+
+// The artist's power-lines drawing, in its fainter version (dAweb2).
+// `?bg=dark` shows the stronger-lined dAbg instead, for comparison.
+const BACKGROUND = '/bg-power-lines-light.jpg';
+const BACKGROUND_DARK = '/bg-power-lines.jpg';
+const noSubscribe = () => () => {};
+function useBackground(): string {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => (new URLSearchParams(window.location.search).get('bg') === 'dark' ? BACKGROUND_DARK : BACKGROUND),
+    () => BACKGROUND,
+  );
+}
 
 // Scroll-to-next-shot (see handleWheel). null = the home shot.
 const SHOT_ORDER: (Section | null)[] = [null, ...SECTIONS.filter((s) => s !== 'store')];
@@ -133,6 +146,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   // swapping it after load would refetch the whole thing; and resolving it in an
   // effect (rather than during render) keeps SSR and first client render
   // identical, so there's nothing for hydration to mismatch on.
+  const background = useBackground();
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   useEffect(() => {
     // The lighter 1K-texture tower everywhere; dev-only ?fulltower loads the
@@ -144,9 +158,12 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   }, []);
 
   return (
-    <main className="relative w-full h-dvh overflow-hidden bg-[#cccccf] bg-[url('/foggy-street.jpg')] bg-cover bg-center">
-      {/* Background photo sits behind the transparent canvas. The flat colour
-          is the photo's own sky tone, so nothing flashes dark while it loads. */}
+    <main
+      className="relative w-full h-dvh overflow-hidden bg-[#f6f3ee] bg-cover bg-center"
+      style={{ backgroundImage: `url('${background}')` }}
+    >
+      {/* Background art sits behind the transparent canvas. The flat colour
+          is the drawing's own sky tone, so nothing flashes while it loads. */}
       {/* 3D Model Overlay. Boundary is deliberately INSIDE this wrapper so a
           WebGL failure only takes down the scene — the nav and panels above
           keep working rather than the whole client tree unwinding. */}

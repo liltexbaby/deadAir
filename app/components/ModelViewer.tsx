@@ -1039,6 +1039,20 @@ function CameraRig({ scene, active, hovered, narrow }: CameraRigProps) {
       }
       cam.updateProjectionMatrix();
     }
+
+    // ?ortho: size never changes with distance, so the zoom stands in for the
+    // lens — pixels per world unit such that the frame shows the same height
+    // at the subject as the perspective shot would. Every frame, since the
+    // subject distance moves during transitions.
+    if ((cam as THREE.Camera as THREE.OrthographicCamera).isOrthographicCamera) {
+      const ortho = cam as THREE.Camera as THREE.OrthographicCamera;
+      const visible = 2 * shotSubjectDist * Math.tan(THREE.MathUtils.degToRad(f.fov) / 2);
+      const zoom = h / Math.max(visible, 1e-4);
+      if (Math.abs(ortho.zoom - zoom) > 1e-3) {
+        ortho.zoom = zoom;
+        ortho.updateProjectionMatrix();
+      }
+    }
   });
 
   return null;
@@ -1646,6 +1660,22 @@ function useFullTowerPreview(): boolean {
   );
 }
 
+/**
+ * Dev-only `?ortho`: an orthographic camera instead of a perspective one, to
+ * look at the tower without perspective. CameraRig keeps every shot's framing
+ * by matching the ortho zoom to what the perspective lens would show at the
+ * subject's distance.
+ */
+function useOrthoPreview(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () =>
+      process.env.NODE_ENV !== 'production' &&
+      new URLSearchParams(window.location.search).has('ortho'),
+    () => false,
+  );
+}
+
 type Dpr = number | [number, number];
 
 /**
@@ -1719,6 +1749,7 @@ export default function ModelViewer({
   const isNarrow = useIsNarrow();
   const liteLighting = !useFullTowerPreview();
   const tuning = useCameraTuning();
+  const ortho = useOrthoPreview();
   const homePixel = usePixelSize('homepixel', HOME_PIXEL_SIZE);
   const sectionPixel = usePixelSize('pixel', PIXEL_SIZE);
   // 'waiting' until the model has loaded, 'revealing' during the load-in
@@ -1771,6 +1802,8 @@ export default function ModelViewer({
   return (
     <div className="w-full h-dvh">
       <Canvas
+        // Dev-only ?ortho; fixed for the Canvas's lifetime (reload to switch).
+        orthographic={ortho}
         // Nearest-neighbour only while pixelated; on home the browser's normal
         // filtered downscale of the 2x canvas is what anti-aliases it.
         style={{ background: 'transparent', imageRendering: pixelated ? 'pixelated' : 'auto' }}

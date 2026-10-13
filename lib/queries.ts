@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createPublicClient } from '@/lib/supabase/public';
+import { getStoreProducts, type StoreProductDTO } from './store';
 
 /**
  * Read side. Everything here returns a narrow DTO rather than a raw row, so the
@@ -63,6 +64,8 @@ export interface SiteContent {
   publishingArtists: ManagedArtistDTO[];
   events: EventDTO[];
   settings: SiteSettingsDTO | null;
+  /** STORE panel, live from Shopify; null if the shop couldn't be reached. */
+  storeProducts: StoreProductDTO[] | null;
 }
 
 const CONTACT_ROLE_LABELS: Record<string, string> = {
@@ -234,11 +237,12 @@ export async function getSiteSettings(): Promise<SiteSettingsDTO | null> {
 
 /** Single entry point for the public page. */
 export async function getSiteContent(): Promise<SiteContent> {
-  const [releases, rosters, events, settings] = await Promise.all([
+  const [releases, rosters, events, settings, storeProducts] = await Promise.all([
     getReleases(),
     getRosters(),
     getEvents(),
     getSiteSettings(),
+    getStoreProducts(),
   ]);
 
   return {
@@ -247,5 +251,6 @@ export async function getSiteContent(): Promise<SiteContent> {
     publishingArtists: rosters.publishing,
     events,
     settings,
+    storeProducts,
   };
 }

@@ -36,13 +36,7 @@ export default function Navigation({
         const isSelected = selectedSection === section;
         const hasBar = barOn === section;
 
-        const label = (
-          <>
-            {SECTION_LABELS[section]}
-            {/* Store leaves the site (new tab) — say so before the click. */}
-            {section === 'store' && <span aria-hidden className="ml-0.5">↗</span>}
-          </>
-        );
+        const label = SECTION_LABELS[section];
 
         return (
           <button

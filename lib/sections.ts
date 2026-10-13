@@ -40,8 +40,5 @@ export const SECTION_LABELS: Record<Section, string> = {
   gallery: 'gallery',
 };
 
-/**
- * STORE doesn't open a panel — it goes straight to the shop (client request:
- * "for now"). Clicking it in the nav or on the tower opens this in a new tab.
- */
+/** The label's Shopify shop; the STORE panel reads its catalogue and links here. */
 export const STORE_URL = 'https://deadair.store';

@@ -9,8 +9,9 @@ import RightPanel from './RightPanel';
 import CatalogGrid from './catalog/CatalogGrid';
 import MgmtPanel from './panels/MgmtPanel';
 import LivePanel from './panels/LivePanel';
+import StorePanel from './panels/StorePanel';
 
-import { SECTIONS, SECTION_LABELS, STORE_URL, type Section } from '@/lib/sections';
+import { SECTIONS, SECTION_LABELS, type Section } from '@/lib/sections';
 import type { SiteContent } from '@/lib/queries';
 import { useIsNarrow } from '@/lib/useCoarsePointer';
 import SceneLoader from './SceneLoader';
@@ -31,7 +32,7 @@ function useBackground(): string {
 }
 
 // Scroll-to-next-shot (see handleWheel). null = the home shot.
-const SHOT_ORDER: (Section | null)[] = [null, ...SECTIONS.filter((s) => s !== 'store')];
+const SHOT_ORDER: (Section | null)[] = [null, ...SECTIONS];
 const WHEEL_STEP = 60;      // px of scroll before a gesture counts
 const WHEEL_GAP_MS = 250;   // a pause this long ends a gesture
 
@@ -45,12 +46,6 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   const [hoveredSection, setHoveredSection] = useState<Section | null>(null);
 
   const handleSectionClick = (section: Section) => {
-    // STORE has no panel: it goes straight to the shop. This also catches a
-    // click on the tower's store hit area, which routes through here too.
-    if (section === 'store') {
-      window.open(STORE_URL, '_blank', 'noopener,noreferrer');
-      return;
-    }
     setSelectedSection(selectedSection === section ? null : section);
   };
 
@@ -91,6 +86,13 @@ export default function SiteShell({ content }: { content: SiteContent }) {
         );
       case 'mgmt':
         return <MgmtPanel artists={content.managedArtists} />;
+      case 'store':
+        return (
+          <StorePanel
+            products={content.storeProducts}
+            knownNames={[...content.managedArtists, ...content.publishingArtists].map((a) => a.name)}
+          />
+        );
       case 'gallery':
         return (
           <div className="font-mono text-black/90">

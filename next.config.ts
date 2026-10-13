@@ -35,6 +35,12 @@ const nextConfig: NextConfig = {
         hostname: 'kkybtjxtdcdvrkexwdyr.supabase.co',
         pathname: '/storage/v1/object/public/**',
       },
+      {
+        // STORE panel product shots, straight from the label's Shopify shop.
+        protocol: 'https',
+        hostname: 'cdn.shopify.com',
+        pathname: '/s/files/**',
+      },
     ],
   },
 };

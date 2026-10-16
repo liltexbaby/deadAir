@@ -177,7 +177,7 @@ export default function LivePanel({ events }: { events: EventDTO[] }) {
           aria-selected={tab === t}
           onClick={() => switchTab(t)}
           className={`font-mono text-[10px] uppercase tracking-[0.2em] transition-colors cursor-pointer ${
-            tab === t ? 'text-black font-bold' : 'text-black/40 hover:text-black/70'
+            tab === t ? 'text-black' : 'text-black/40 hover:text-black/70'
           }`}
         >
           {t} <span className="tabular-nums font-normal text-black/35">{groups[t].length}</span>
@@ -213,6 +213,8 @@ export default function LivePanel({ events }: { events: EventDTO[] }) {
                     onMouseEnter={() => setHovered(event.id)}
                     onFocus={() => setHovered(event.id)}
                     onClick={() => setPinned(event.id)}
+                    data-sfx-hover
+                    data-sfx-press
                     className={`relative cursor-pointer py-4 pl-4 transition-colors ${
                       isActive ? 'bg-black/4' : 'hover:bg-black/2'
                     }`}

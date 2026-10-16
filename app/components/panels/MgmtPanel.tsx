@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import type { ManagedArtistDTO } from '@/lib/queries';
 import InquiryForm, { EMPTY_DRAFT, type InquiryDraft } from './InquiryForm';
 import PixelPortrait from './PixelPortrait';
+import { playSfx } from '@/lib/sound';
 
 const SWIPE_DISTANCE = 50;   // px of drag that counts as a deliberate swipe
 const SWIPE_VELOCITY = 400;  // ...or a flick this fast, however short
@@ -96,6 +97,9 @@ export default function MgmtPanel({
   const step = (dir: 1 | -1) => {
     if (dir === 1 ? index >= count - 1 : index <= 0) return;
     go(index + dir);
+    // Every step sounds, tapped or swiped (a swipe is a drag, so the
+    // site-wide click listener never sees it; the buttons opt out of it).
+    playSfx('press');
     setPulse((p) => (dir === 1 ? { ...p, next: p.next + 1 } : { ...p, prev: p.prev + 1 }));
   };
 
@@ -153,7 +157,7 @@ export default function MgmtPanel({
                       where the bar's edge passes. Retracts the same way. */}
                   <span
                     aria-hidden
-                    className={`absolute inset-0 flex items-baseline gap-3 bg-black/80 py-3 pl-4 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                    className={`ui-wipe absolute inset-0 flex items-baseline gap-3 bg-black/80 py-3 pl-4 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
                       isActive ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
                     }`}
                   >
@@ -257,7 +261,7 @@ export default function MgmtPanel({
               >
                 <span className="relative block h-2.5 w-2.5 border border-black/40">
                   <span
-                    className={`absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                    className={`ui-pip absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
                       i === index ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
                     }`}
                   />
@@ -364,6 +368,8 @@ function StepButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
+      // step() plays the press itself, so a tap doesn't sound twice.
+      data-sfx="hover-only"
       className={`relative ${text} text-black/55 transition-colors disabled:pointer-events-none disabled:text-black/15 cursor-pointer`}
     >
       {label}
@@ -371,7 +377,7 @@ function StepButton({
         <motion.span
           key={pulse}
           aria-hidden
-          className={`absolute inset-0 bg-black/80 ${text} text-white`}
+          className={`ui-wipe absolute inset-0 bg-black/80 ${text} text-white`}
           // Snaps fully dark, holds while the square fills (300ms, see the
           // indicator), then eases back out. Opacity only — the size never changes.
           initial={{ opacity: 1 }}

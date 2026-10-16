@@ -834,6 +834,94 @@ function PixelReveal({ onStart, onDone }: { onStart: () => void; onDone: () => v
   );
 }
 
+export type HeaderTone = 'dark' | 'light';
+
+// HEADER TONE PROBE. How often to re-measure, the band (in CSS px, from the
+// top of the viewport) that the logo and nav occupy, and the luminance either
+// side of 0.5 the reading must cross before the tone flips (hysteresis, so a
+// reading hovering near the middle doesn't flicker).
+const TONE_INTERVAL_S = 0.5;
+const TONE_BAND = { top: 24, height: 130, width: 440 };
+const TONE_HYSTERESIS = 0.07;
+// What shows through where the canvas is transparent: the light background
+// drawing, ~#f2efe9.
+const TONE_BACKDROP_LUMA = 0.93;
+
+/**
+ * Measures how bright the scene is behind the header, so SiteShell can flip
+ * the logo and nav to light ink over dark tower. Every TONE_INTERVAL_S it
+ * renders one extra frame and reads back just the header's band — reading the
+ * normal frame isn't possible, since the canvas doesn't preserve its buffer.
+ * Off on home (always light) and on phones (the header hides behind the
+ * panel there).
+ */
+function HeaderToneProbe({
+  active,
+  narrow,
+  onTone,
+}: {
+  active: boolean;
+  narrow: boolean;
+  onTone: (tone: HeaderTone) => void;
+}) {
+  const since = useRef(0);
+  const tone = useRef<HeaderTone>('dark');
+  const buffer = useRef<Uint8Array | null>(null);
+
+  useEffect(() => {
+    if (active && !narrow) return;
+    tone.current = 'dark';
+    onTone('dark');
+  }, [active, narrow, onTone]);
+
+  useFrame((state, dt) => {
+    if (!active || narrow) return;
+    since.current += dt;
+    if (since.current < TONE_INTERVAL_S) return;
+    since.current = 0;
+
+    const { gl, scene, camera, size } = state;
+    gl.render(scene, camera);
+    const ctx = gl.getContext();
+    const scale = ctx.drawingBufferWidth / size.width;
+    // With a panel open the header is shifted 25vw left, so it's centred on
+    // the left half of the screen.
+    const cx = size.width * 0.25;
+    const x = Math.max(0, Math.round((cx - TONE_BAND.width / 2) * scale));
+    const w = Math.min(ctx.drawingBufferWidth - x, Math.round(TONE_BAND.width * scale));
+    const h = Math.max(1, Math.round(TONE_BAND.height * scale));
+    // WebGL's origin is bottom-left.
+    const y = Math.max(0, ctx.drawingBufferHeight - Math.round((TONE_BAND.top + TONE_BAND.height) * scale));
+    if (w <= 0) return;
+    const needed = w * h * 4;
+    if (!buffer.current || buffer.current.length < needed) buffer.current = new Uint8Array(needed);
+    const px = buffer.current;
+    ctx.readPixels(x, y, w, h, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+
+    // Premultiplied canvas: what the eye sees is colour + (1 - alpha) of the
+    // background showing through.
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < needed; i += 4 * 7) {
+      const a = px[i + 3] / 255;
+      const luma = (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255;
+      sum += luma + (1 - a) * TONE_BACKDROP_LUMA;
+      n++;
+    }
+    const avg = n ? sum / n : 1;
+    const next: HeaderTone =
+      tone.current === 'dark'
+        ? (avg < 0.5 - TONE_HYSTERESIS ? 'light' : 'dark')
+        : (avg > 0.5 + TONE_HYSTERESIS ? 'dark' : 'light');
+    if (next !== tone.current) {
+      tone.current = next;
+      onTone(next);
+    }
+  });
+
+  return null;
+}
+
 /**
  * Drives the render loop at a fixed rate while the Canvas is in 'demand' mode.
  * Pass fps = null to do nothing (the loop is running at full rate).
@@ -1735,7 +1823,34 @@ interface ModelViewerProps {
   onHover: (section: Section | null) => void;
   onClose: () => void;
   modelUrl: string;
+  /** Header ink to use over the current shot (see HeaderToneProbe). */
+  onHeaderTone?: (tone: HeaderTone) => void;
+  /** Everything has loaded and the tower is starting to appear. */
+  onReady?: () => void;
 }
+
+/**
+ * Fires once the tower is actually on screen, so SiteShell can bring the logo
+ * and nav online with it and the whole interface boots as one.
+ *
+ * Not on mount: the Suspense boundary resolves as soon as the files have
+ * downloaded, but the first frame then stalls — sometimes for seconds — while
+ * the GPU compiles every material's shaders and uploads the textures. Firing
+ * on mount brought the UI up well before the tower appeared. Waiting until a
+ * couple of frames have rendered lines it up with PixelReveal, whose clock
+ * also only starts moving once frames are flowing.
+ */
+const READY_AFTER_FRAMES = 3;
+function ReadySignal({ onReady }: { onReady: () => void }) {
+  const frames = useRef(0);
+  useFrame(() => {
+    if (frames.current > READY_AFTER_FRAMES) return;
+    if (++frames.current === READY_AFTER_FRAMES) onReady();
+  });
+  return null;
+}
+
+const noTone = () => {};
 
 export default function ModelViewer({
   activeSection,
@@ -1744,6 +1859,8 @@ export default function ModelViewer({
   onHover,
   onClose,
   modelUrl,
+  onHeaderTone = noTone,
+  onReady = noTone,
 }: ModelViewerProps) {
   const coarse = useCoarsePointer();
   const isNarrow = useIsNarrow();
@@ -1860,6 +1977,8 @@ export default function ModelViewer({
             modelUrl={modelUrl}
           />
           {reveal !== 'done' && <PixelReveal onStart={startReveal} onDone={endReveal} />}
+          <HeaderToneProbe active={activeSection !== null} narrow={isNarrow} onTone={onHeaderTone} />
+          <ReadySignal onReady={onReady} />
 
           {/* Ground shadow. drei defaults to frames={Infinity}, which re-renders
               the scene into a 512² depth target plus four blur passes EVERY

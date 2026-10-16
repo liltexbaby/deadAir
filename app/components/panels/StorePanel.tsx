@@ -77,7 +77,7 @@ export default function StorePanel({
         aria-label="Filter by artist"
         className="-mx-5 flex gap-1 overflow-x-auto px-5 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
       >
-        <FilterChip label="all" count={products.length} selected={artist === ALL} onClick={() => setArtist(ALL)} />
+        <FilterChip label="All" count={products.length} selected={artist === ALL} onClick={() => setArtist(ALL)} />
         {artists.map((a) => (
           <FilterChip
             key={a.key}
@@ -161,7 +161,7 @@ function FilterChip({
       {body}
       <span
         aria-hidden
-        className={`absolute inset-0 ${text} bg-black/80 text-white transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        className={`ui-wipe absolute inset-0 ${text} bg-black/80 text-white transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
           selected ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
         }`}
       >
@@ -200,7 +200,7 @@ function ProductCard({ product: p }: { product: StoreProductDTO }) {
           />
         )}
         {soldOut && (
-          <span className="absolute left-0 top-0 bg-black/70 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-white">
+          <span className="ui-tag absolute left-0 top-0 bg-black/70 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-white">
             sold out
           </span>
         )}
@@ -212,7 +212,7 @@ function ProductCard({ product: p }: { product: StoreProductDTO }) {
         <Caption product={p} />
         <div
           aria-hidden
-          className="absolute inset-0 bg-black/80 transition-[clip-path] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] [clip-path:inset(0_100%_0_0)] group-hover:duration-300 group-hover:[clip-path:inset(0_0_0_0)] group-focus-visible:[clip-path:inset(0_0_0_0)]"
+          className="ui-wipe absolute inset-0 bg-black/80 transition-[clip-path] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] [clip-path:inset(0_100%_0_0)] group-hover:duration-300 group-hover:[clip-path:inset(0_0_0_0)] group-focus-visible:[clip-path:inset(0_0_0_0)]"
         >
           <Caption product={p} inverted />
         </div>

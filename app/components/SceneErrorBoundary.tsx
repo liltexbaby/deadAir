@@ -19,7 +19,7 @@ interface State {
 }
 
 export default class SceneErrorBoundary extends Component<
-  { children: ReactNode; fallback?: ReactNode },
+  { children: ReactNode; fallback?: ReactNode; onError?: () => void },
   State
 > {
   state: State = { error: null };
@@ -30,6 +30,7 @@ export default class SceneErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: unknown) {
     console.error('[scene] failed to render:', error, info);
+    this.props.onError?.();
   }
 
   render() {

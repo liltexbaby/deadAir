@@ -21,7 +21,7 @@ const LABEL = 'font-mono text-[10px] uppercase tracking-[0.15em] text-black/35';
 // A step more opaque than the panel behind it (white/40 desktop, /70 phone):
 // reads as a box to type in without going solid. Square, hairline edge.
 const FIELD =
-  'mt-1 block w-full rounded-none border border-black/15 bg-white/50 px-2.5 py-2 font-mono text-base sm:text-xs text-black/90 placeholder:text-black/30 outline-none transition-colors hover:border-black/25 focus:border-black/60 focus:bg-white/75';
+  'ui-field mt-1 block w-full rounded-none border border-black/15 bg-white/50 px-2.5 py-2 font-mono text-base sm:text-xs text-black/90 placeholder:text-black/30 outline-none transition-colors hover:border-black/25 focus:border-black/60 focus:bg-white/75';
 
 /**
  * "Send a message" to an artist's team, in place of listing their addresses.

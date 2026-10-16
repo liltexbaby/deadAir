@@ -32,12 +32,14 @@ export const SECTIONS: readonly Section[] = [
  * click target and camera for that section.
  */
 export const SECTION_LABELS: Record<Section, string> = {
-  catalog: 'catalog',
-  live: 'live',
-  store: 'store',
-  contact: 'publishing',
-  mgmt: 'mgmt',
-  gallery: 'gallery',
+  // Title case at the source: the default look uppercases these anyway, and
+  // the ?retro skin shows them as written ("Catalog", like SH2's "Status").
+  catalog: 'Catalog',
+  live: 'Live',
+  store: 'Store',
+  contact: 'Publishing',
+  mgmt: 'Mgmt',
+  gallery: 'Gallery',
 };
 
 /** The label's Shopify shop; the STORE panel reads its catalogue and links here. */

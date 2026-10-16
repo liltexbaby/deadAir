@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore, type WheelEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type WheelEvent } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import ModelViewer from './ModelViewer';
+import ModelViewer, { type HeaderTone } from './ModelViewer';
+import SoundEffects from './SoundEffects';
+import { playSfx } from '@/lib/sound';
 import Navigation from './Navigation';
 import RightPanel from './RightPanel';
 import CatalogGrid from './catalog/CatalogGrid';
@@ -33,6 +35,7 @@ function useBackground(): string {
 
 // Scroll-to-next-shot (see handleWheel). null = the home shot.
 const SHOT_ORDER: (Section | null)[] = [null, ...SECTIONS];
+const BOOT_FALLBACK_MS = 15000;
 const WHEEL_STEP = 60;      // px of scroll before a gesture counts
 const WHEEL_GAP_MS = 250;   // a pause this long ends a gesture
 
@@ -47,6 +50,25 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
   const handleSectionClick = (section: Section) => {
     setSelectedSection(selectedSection === section ? null : section);
+  };
+
+  // Panel sounds come from the section state, not the controls, so the nav,
+  // the tower, Escape, the close button and the logo all sound the same:
+  // opening from home, closing back to it, or switching while open.
+  const shownSection = useRef<Section | null>(null);
+  useEffect(() => {
+    const prev = shownSection.current;
+    shownSection.current = selectedSection;
+    if (prev === selectedSection) return;
+    if (prev === null) playSfx('panel-open');
+    else if (selectedSection === null) playSfx('panel-close');
+    else playSfx('press');
+  }, [selectedSection]);
+
+  // Pointing at a section on the tower ticks like hovering its nav item.
+  const handleTowerHover = (section: Section | null) => {
+    if (section && section !== hoveredSection) playSfx('hover');
+    setHoveredSection(section);
   };
 
   const handleClose = () => {
@@ -149,6 +171,20 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   // effect (rather than during render) keeps SSR and first client render
   // identical, so there's nothing for hydration to mismatch on.
   const background = useBackground();
+  // Light or dark ink for the logo and nav, measured off the scene behind
+  // them (ModelViewer's HeaderToneProbe; styles in globals.css).
+  const [headerTone, setHeaderTone] = useState<HeaderTone>('dark');
+
+  // Boot: the logo and nav stay dark until the tower has loaded, then come
+  // online with it — so the page assembles as one machine starting up rather
+  // than UI first and a 3D model trailing in. If the scene fails, or is
+  // still loading after BOOT_FALLBACK_MS, the interface boots on its own.
+  const [booted, setBooted] = useState(false);
+  const boot = useCallback(() => setBooted(true), []);
+  useEffect(() => {
+    const t = setTimeout(boot, BOOT_FALLBACK_MS);
+    return () => clearTimeout(t);
+  }, [boot]);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   useEffect(() => {
     // The lighter 1K-texture tower everywhere; dev-only ?fulltower loads the
@@ -161,7 +197,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
   return (
     <main
-      className="relative w-full h-dvh overflow-hidden bg-[#f6f3ee] bg-cover bg-center"
+      className="ui-stage relative w-full h-dvh overflow-hidden bg-[#f6f3ee] bg-cover bg-center"
       style={{ backgroundImage: `url('${background}')` }}
     >
       {/* Background art sits behind the transparent canvas. The flat colour
@@ -170,15 +206,17 @@ export default function SiteShell({ content }: { content: SiteContent }) {
           WebGL failure only takes down the scene — the nav and panels above
           keep working rather than the whole client tree unwinding. */}
       <div className="absolute inset-0 z-10" onWheel={handleWheel}>
-        <SceneErrorBoundary>
+        <SceneErrorBoundary onError={boot}>
           {modelUrl && (
             <ModelViewer
               activeSection={selectedSection}
               hoveredSection={hoveredSection}
               onNavigate={handleSectionClick}
-              onHover={setHoveredSection}
+              onHover={handleTowerHover}
               onClose={handleClose}
               modelUrl={modelUrl}
+              onHeaderTone={setHeaderTone}
+              onReady={boot}
             />
           )}
         </SceneErrorBoundary>
@@ -186,14 +224,15 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
       <ClientErrorReporter />
 
-      <SceneLoader />
+      <SceneLoader done={booted} />
 
       {/* Logo + nav. On desktop the panel takes the right half, so this shifts a
           quarter of the viewport left to stay centred in what's still visible.
           On mobile the panel is a full-width sheet that covers this entirely, so
           the shift would only push the nav off-screen. */}
       <motion.div
-        className="fixed top-0 left-0 right-0 z-50 flex flex-col items-center gap-4 sm:gap-5 pt-[calc(env(safe-area-inset-top,0px)+1.75rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+2.25rem)]"
+        data-tone={headerTone}
+        className="ui-header fixed top-0 left-0 right-0 z-50 flex flex-col items-center gap-4 sm:gap-5 pt-[calc(env(safe-area-inset-top,0px)+1.75rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+2.25rem)]"
         animate={{
           x: isPanelOpen && !isNarrow ? '-25vw' : 0,
           // On mobile the panel is a full-screen sheet, so a z-50 header would
@@ -211,24 +250,35 @@ export default function SiteShell({ content }: { content: SiteContent }) {
         {/* Client request: clicking the logo always resets the page. */}
         <button
           onClick={handleReset}
+          data-sfx="hover-only"
           aria-label="deadAir — back to start"
           className="cursor-pointer"
-          style={{ pointerEvents: hideHeader ? 'none' : 'auto' }}
+          style={{ pointerEvents: hideHeader || !booted ? 'none' : 'auto' }}
         >
-          <Image
-            src="/dA.png"
-            alt="Dead Air"
-            width={56}
-            height={55}
-            priority
-            // The logo file is white; invert rather than ship a second copy now
-            // that the site sits on a light background.
-            className="w-11 h-auto sm:w-14 opacity-90 invert"
-          />
+          {/* Boot: the logo flickers on like a CRT warming up, just after the
+              tower starts to appear and before the nav. */}
+          <motion.span
+            className="block"
+            initial={false}
+            animate={booted ? { opacity: [0, 1, 0.15, 0.9, 0.4, 1] } : { opacity: 0 }}
+            transition={booted ? { delay: 0.5, duration: 0.55, times: [0, 0.15, 0.3, 0.5, 0.7, 1] } : { duration: 0 }}
+          >
+            <Image
+              src="/dA.png"
+              alt="Dead Air"
+              width={56}
+              height={55}
+              priority
+              // The logo file is white; invert rather than ship a second copy now
+              // that the site sits on a light background.
+              className="w-11 h-auto sm:w-14 opacity-90 invert"
+            />
+          </motion.span>
         </button>
 
-        <div style={{ pointerEvents: hideHeader ? 'none' : 'auto' }}>
+        <div style={{ pointerEvents: hideHeader || !booted ? 'none' : 'auto' }}>
           <Navigation
+            booted={booted}
             selectedSection={selectedSection}
             hoveredSection={hoveredSection}
             onSectionClick={handleSectionClick}
@@ -236,6 +286,8 @@ export default function SiteShell({ content }: { content: SiteContent }) {
           />
         </div>
       </motion.div>
+
+      <SoundEffects />
 
       {/* Right Panel with content */}
       <RightPanel

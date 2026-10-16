@@ -3,13 +3,50 @@
 :root {
   --background: #f6f3ee;   /* bg-power-lines-light.jpg sky tone */
   --foreground: #171717;
+  /* NieR-style UI face (app/layout.tsx). Every component uses `font-mono`,
+     so this one variable re-types the whole site. */
+  --font-ui: var(--font-noto-jp);
 }
+html[data-font="mplus"] { --font-ui: var(--font-mplus); }
+html[data-font="zen"] { --font-ui: var(--font-zen); }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-ui), system-ui, sans-serif;
+  /* Was Geist Mono. The utility keeps its name so no component changes; it
+     now means "the UI face" rather than monospace. Counters keep their
+     alignment through tabular-nums where it matters. */
+  --font-mono: var(--font-ui), system-ui, sans-serif;
+}
+
+/* One weight everywhere: medium. 300/400 felt washed out over the fog, and a
+   600 step for headings read too heavy. Hierarchy comes from size, colour and
+   the selection bar instead. Base layer, so a component's own weight class
+   still wins. */
+@layer base {
+  body { font-weight: 500; }
+  :is(h1, h2, h3, h4) { font-weight: inherit; }
+}
+
+/* Header tone (SiteShell sets data-tone from ModelViewer's HeaderToneProbe).
+   Section shots can fill the frame with dark tower behind the logo and nav;
+   when they do, the header flips to light ink — white words, white logo, and
+   a light selection bar with dark text — and back again over light scenes.
+   Colour transitions only, so it fades rather than snaps. */
+.ui-header .ui-nav-item,
+.ui-header .ui-wipe,
+.ui-header img { transition: color 0.45s ease, background-color 0.45s ease, filter 0.45s ease; }
+html:not([data-retro]) .ui-header[data-tone="light"] img { filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.35)); }
+html:not([data-retro]) .ui-header[data-tone="light"] .ui-nav-item {
+  color: rgb(255 255 255 / 0.82);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.45);
+}
+html:not([data-retro]) .ui-header[data-tone="light"] .ui-nav-item:hover { color: #fff; }
+html:not([data-retro]) .ui-header[data-tone="light"] .ui-wipe {
+  background-color: rgb(246 243 238 / 0.92);
+  color: #141414;
+  text-shadow: none;
 }
 
 /* No dark-mode variant. The public site is designed light-on-fog only, and
@@ -27,7 +64,7 @@ body {
   color: var(--foreground);
   /* Was `Arial, Helvetica` from create-next-app, which overrode the Geist
      variables the layout goes to the trouble of loading. */
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-ui), system-ui, sans-serif;
 }
 
 html {
@@ -66,3 +103,138 @@ canvas {
    property here: routing it via `var(--safe-top)` adds a substitution step
    that is not worth debugging on a device with no console, and inlining costs
    nothing. Search for `safe-area-inset` to find them. */
+
+/* ==========================================================================
+   `?retro` — alternate "foggy survival-horror" skin
+   ==========================================================================
+   Off unless the URL carries ?retro (app/layout.tsx sets html[data-retro]).
+   Nothing here touches the default look: every rule is scoped to
+   html[data-retro], and components only carry inert `ui-*` hook classes.
+
+   Mood, not menus: Silent Hill 2's cemetery — a grey wall of fog, film
+   grain, white serif subtitles with a soft shadow — and early Resident Evil's
+   gloom. Same white-on-black scheme as the default skin, with blood-red
+   accents where the default uses its dark selection bar.
+
+   These rules are unlayered on purpose: Tailwind's utilities sit in
+   @layer utilities, and unlayered CSS beats any layered rule — so these win
+   over the components' own classes without !important.
+   ========================================================================== */
+
+html[data-retro] {
+  --retro-ink: #f2f0ec;
+  --retro-dim: rgba(222, 218, 212, 0.55);
+  --retro-smoke: rgba(12, 12, 14, 0.74);
+  --retro-smoke-soft: rgba(255, 255, 255, 0.04);
+  --retro-line: rgba(255, 255, 255, 0.14);
+  --retro-red: #8f1418;
+  --retro-red-bar: linear-gradient(90deg, #4a0709 0%, #7d1013 45%, #96171b 100%);
+  --retro-shadow: 0 1px 2px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.35);
+}
+
+/* ---- the scene: the drawing sunk into grey fog ------------------------------ */
+/* Multiplying the drawing by mid grey turns its warm paper into overcast fog
+   while keeping the poles faintly visible through it. */
+html[data-retro] .ui-stage {
+  background-color: #a3a3a6;
+  background-blend-mode: multiply;
+}
+
+/* ---- type: thin white serif, like SH2's subtitles --------------------------- */
+html[data-retro] :is(.ui-nav, .ui-surface) :is(*, *::before) {
+  font-family: var(--font-retro), "Times New Roman", serif;
+  font-weight: 500;
+  text-shadow: var(--retro-shadow);
+}
+html[data-retro] :is(.ui-nav, .ui-surface) .uppercase {
+  text-transform: none;
+  letter-spacing: 0.08em;
+}
+/* The serif runs small at the mono sizes it inherits; step everything up. */
+html[data-retro] .ui-surface :is([class~="text-[9px]"], [class~="text-[10px]"]) { font-size: 13px; }
+html[data-retro] .ui-surface :is([class~="text-[11px]"], .text-xs) { font-size: 15px; }
+html[data-retro] .ui-surface .text-sm { font-size: 17px; }
+html[data-retro] .ui-surface .ui-title { font-size: 21px; letter-spacing: 0.16em; }
+html[data-retro] .ui-nav :is(button, span) { font-size: 18px; letter-spacing: 0.1em; }
+@media (max-width: 639px) {
+  html[data-retro] .ui-nav :is(button, span) { font-size: 15px; letter-spacing: 0.04em; }
+}
+
+/* ---- panels: smoke, not glass ----------------------------------------------- */
+html[data-retro] .ui-surface {
+  background: var(--retro-smoke);
+  color: var(--retro-ink);
+  border-color: var(--retro-line);
+}
+html[data-retro] .ui-strip { background: #0c0c0e; }
+html[data-retro] .ui-surface [class*="text-black"] { color: var(--retro-ink); }
+html[data-retro] .ui-surface :is([class*="text-black/1"], [class*="text-black/2"], [class*="text-black/3"],
+  [class*="text-black/4"], [class*="text-black/5"]) { color: var(--retro-dim); }
+html[data-retro] .ui-surface [class*="border-black"],
+html[data-retro] .ui-surface :is(.divide-y, .divide-x) > * { border-color: var(--retro-line); }
+html[data-retro] .ui-surface :is([class*="bg-white/"], [class*="bg-black/["]) { background-color: var(--retro-smoke-soft); }
+html[data-retro] .ui-surface :is([class*="bg-black/4"], [class*="bg-black/2"]) { background-color: rgba(255, 255, 255, 0.06); }
+html[data-retro] .ui-surface .text-emerald-700\/80 { color: #c9c4bb; }
+
+/* A single red hairline under the panel header — the one accent that's
+   always on screen. */
+html[data-retro] .ui-surface:has(> div > .ui-title) { box-shadow: inset 0 -1px 0 var(--retro-red); }
+
+/* ---- nav: bare white words in the fog --------------------------------------- */
+html[data-retro] .ui-nav-item { color: var(--retro-ink); }
+html[data-retro] .ui-nav-item:not([aria-current]) { color: rgba(242, 240, 236, 0.78); }
+
+/* ---- selection: the dark wipe bar runs blood red ---------------------------- */
+html[data-retro] .ui-wipe {
+  background: var(--retro-red-bar);
+  box-shadow: inset 2px 0 0 #c4262b;
+}
+html[data-retro] .ui-wipe :is(*, *::before) { color: #fff; }
+html[data-retro] .ui-pip { background: var(--retro-red); }
+html[data-retro] .ui-tag { background: var(--retro-red); color: #fff; }
+
+/* ---- form fields: dark wells ------------------------------------------------ */
+html[data-retro] .ui-field {
+  background: rgba(0, 0, 0, 0.45);
+  border-color: var(--retro-line);
+  color: var(--retro-ink);
+}
+html[data-retro] .ui-field::placeholder { color: rgba(222, 218, 212, 0.3); }
+html[data-retro] .ui-field:focus { border-color: var(--retro-red); background: rgba(0, 0, 0, 0.6); }
+
+/* Logo: the file is white and the light skin inverts it to black; in the
+   smoke-dark panels it drops the invert and shows white. */
+html[data-retro] .ui-surface img[src*="dA.png"] { filter: drop-shadow(0 1px 2px #000); opacity: 0.9; }
+
+/* ---- film: grain and a heavy vignette over everything ----------------------- */
+html[data-retro] body::after {
+  content: "";
+  position: fixed;
+  inset: -50%;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.16;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1.4 -0.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: retro-grain 0.6s steps(4) infinite;
+}
+html[data-retro] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(10, 10, 12, 0.55) 100%);
+}
+@keyframes retro-grain {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-7%, 4%); }
+  50% { transform: translate(5%, -6%); }
+  75% { transform: translate(-3%, -8%); }
+  100% { transform: translate(6%, 5%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-retro] body::after { animation: none; }
+}
+
+
+

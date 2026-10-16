@@ -73,7 +73,7 @@ const fade: Variants = {
   closed: { opacity: 0, transition: { duration: 0.15 } },
 };
 
-const SURFACE = 'bg-white/70 sm:bg-white/40 backdrop-blur-xl sm:border-l sm:border-black/15';
+const SURFACE = 'ui-surface bg-white/70 sm:bg-white/40 backdrop-blur-xl sm:border-l sm:border-black/15';
 
 export default function RightPanel({ isOpen, title, children, onClose, onReset }: RightPanelProps) {
   const reduce = useReducedMotion();
@@ -112,7 +112,7 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
           initial="closed"
           animate="open"
           exit="closed"
-          className="pointer-events-none fixed top-0 right-0 w-full sm:w-1/2 z-30 bg-[#f6f3ee] h-[calc(env(safe-area-inset-top,0px)*2)]"
+          className="ui-strip pointer-events-none fixed top-0 right-0 w-full sm:w-1/2 z-30 bg-[#f6f3ee] h-[calc(env(safe-area-inset-top,0px)*2)]"
         />
       )}
 
@@ -147,7 +147,7 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
                   phone sheet, so the logo's reset lives here too — "clicking
                   the dA logo always resets the page". Phone only: on desktop the
                   page header stays visible beside the panel, logo and all. */}
-              <button onClick={onReset} aria-label="deadAir — back to start" className="sm:hidden -m-1 p-1 cursor-pointer">
+              <button onClick={onReset} data-sfx="hover-only" aria-label="deadAir — back to start" className="sm:hidden -m-1 p-1 cursor-pointer">
                 <Image src="/dA.png" alt="" width={56} height={55} className="w-6 h-auto opacity-80 invert" />
               </button>
               {/* Keyed so a section change re-runs the flicker on the new name. */}
@@ -156,7 +156,7 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
                 initial={{ opacity: 0 }}
                 animate={{ opacity: reduce ? 1 : [0, 1, 0.25, 1] }}
                 transition={{ delay: reduce ? 0 : 0.12, duration: reduce ? 0.15 : 0.3, times: reduce ? undefined : [0, 0.3, 0.5, 1] }}
-                className="font-mono text-xs uppercase tracking-[0.25em] text-black/90"
+                className="ui-title font-mono text-xs uppercase tracking-[0.25em] text-black/90"
               >
                 {title}
               </motion.h2>
@@ -164,6 +164,7 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
 
             <button
               onClick={onClose}
+              data-sfx="hover-only"
               aria-label="Close panel"
               // Negative margins keep the ~44px tap target without letting its
               // padding inflate the header's height or push it off the edge.

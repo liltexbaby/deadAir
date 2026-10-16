@@ -29,6 +29,7 @@ export default function AlbumCard({
 
   return (
     <motion.div
+      data-sfx-hover
       className="relative group"
       onMouseEnter={() => !coarse && setIsHovered(true)}
       onMouseLeave={() => !coarse && setIsHovered(false)}
@@ -44,6 +45,7 @@ export default function AlbumCard({
       <div
         className="aspect-square relative border border-black/15 bg-black/[0.03] overflow-hidden"
         onClick={() => coarse && setIsHovered(!isHovered)}
+        data-sfx-press={coarse ? '' : undefined}
         role={coarse && release.links.length > 0 ? 'button' : undefined}
         aria-label={coarse && release.links.length > 0 ? `Show links for ${release.title}` : undefined}
       >
@@ -91,7 +93,7 @@ export default function AlbumCard({
         <AlbumInfo release={release} />
         <div
           aria-hidden
-          className={`absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          className={`ui-wipe absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
             isHovered ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
           }`}
         >

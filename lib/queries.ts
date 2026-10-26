@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createPublicClient } from '@/lib/supabase/public';
 import { getStoreProducts, type StoreProductDTO } from './store';
+import { GALLERY_MANIFEST } from './galleryManifest';
 
 /**
  * Read side. Everything here returns a narrow DTO rather than a raw row, so the
@@ -32,6 +33,16 @@ export interface ManagedArtistDTO {
   contacts: { role: string; label: string; name: string | null; url: string | null; messageable: boolean }[];
   /** Message-box prompt for this artist ({artist} -> name); null = default. */
   emailBody: string | null;
+}
+
+export interface GalleryItemDTO {
+  id: string;
+  title: string;
+  /** Public URL (Supabase storage) or a site path under /gallery. */
+  src: string;
+  /** Pixel size of the web copy; null when unknown (shown square). */
+  width: number | null;
+  height: number | null;
 }
 
 export interface EventDTO {
@@ -66,6 +77,7 @@ export interface SiteContent {
   settings: SiteSettingsDTO | null;
   /** STORE panel, live from Shopify; null if the shop couldn't be reached. */
   storeProducts: StoreProductDTO[] | null;
+  gallery: GalleryItemDTO[];
 }
 
 const CONTACT_ROLE_LABELS: Record<string, string> = {
@@ -237,12 +249,13 @@ export async function getSiteSettings(): Promise<SiteSettingsDTO | null> {
 
 /** Single entry point for the public page. */
 export async function getSiteContent(): Promise<SiteContent> {
-  const [releases, rosters, events, settings, storeProducts] = await Promise.all([
+  const [releases, rosters, events, settings, storeProducts, gallery] = await Promise.all([
     getReleases(),
     getRosters(),
     getEvents(),
     getSiteSettings(),
     getStoreProducts(),
+    getGallery(),
   ]);
 
   return {
@@ -252,5 +265,32 @@ export async function getSiteContent(): Promise<SiteContent> {
     events,
     settings,
     storeProducts,
+    gallery,
   };
+}
+
+/**
+ * GALLERY: the `gallery_items` table once it exists and has published rows
+ * (migration 0003); until then the built-in set generated into
+ * lib/galleryManifest.ts. Never throws — a missing table is the expected
+ * state for now, not an error.
+ */
+export async function getGallery(): Promise<GalleryItemDTO[]> {
+  try {
+    const supabase = createPublicClient();
+    const { data, error } = await supabase
+      .from('gallery_items')
+      .select('id, title, image_path, width, height')
+      .eq('published', true)
+      .order('position', { ascending: true });
+    if (error || !data || data.length === 0) return GALLERY_MANIFEST;
+    return data.flatMap((row) => {
+      const src = mediaUrl(row.image_path as string);
+      return src
+        ? [{ id: row.id as string, title: row.title as string, src, width: row.width ?? null, height: row.height ?? null }]
+        : [];
+    });
+  } catch {
+    return GALLERY_MANIFEST;
+  }
 }

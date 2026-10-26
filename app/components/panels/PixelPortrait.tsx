@@ -28,11 +28,19 @@ export default function PixelPortrait({
   src,
   sizes,
   active = true,
+  fit = 'cover',
+  pixelated = true,
+  alt = '',
 }: {
   src: string;
   sizes: string;
   /** Phone carousel: only the slide in view animates; leaving it plays the out half. */
   active?: boolean;
+  /** 'contain' shows the whole image (GALLERY's mixed shapes); portraits crop. */
+  fit?: 'cover' | 'contain';
+  /** Nearest-neighbour scaling at rest — right for pixel-art portraits only. */
+  pixelated?: boolean;
+  alt?: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -70,7 +78,7 @@ export default function PixelPortrait({
     show(false);
     (async () => {
       if (leaving && prev) {
-        await animate(c, prev.image, OUT_MS, 'out', alive);
+        await animate(c, prev.image, OUT_MS, 'out', alive, fit);
         if (!alive()) return;
       }
       if (!active) {
@@ -86,7 +94,7 @@ export default function PixelPortrait({
         show(true);
         return;
       }
-      await animate(c, raw, IN_MS, 'in', alive);
+      await animate(c, raw, IN_MS, 'in', alive, fit);
       if (!alive()) return;
       snapshot.current = { src, image: capture(raw) };
       clear(c);
@@ -98,18 +106,20 @@ export default function PixelPortrait({
       // last fully shown.
       cancelled = true;
     };
-  }, [src, active]);
+  }, [src, active, fit]);
 
   return (
     <div ref={frame} className="absolute inset-0">
       <Image
         src={src}
-        alt=""
+        alt={alt}
         fill
         sizes={sizes}
         draggable={false}
-        // Pixel art: keep the edges hard when scaled up.
-        className="object-cover [image-rendering:pixelated]"
+        className={`${fit === 'contain' ? 'object-contain' : 'object-cover'} ${
+          // Pixel art: keep the edges hard when scaled up.
+          pixelated ? '[image-rendering:pixelated]' : ''
+        }`}
         style={{ opacity: 0 }}
       />
       <canvas ref={canvas} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
@@ -170,6 +180,7 @@ function animate(
   ms: number,
   dir: 'in' | 'out',
   alive: () => boolean,
+  fit: 'cover' | 'contain',
 ): Promise<void> {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.max(1, Math.round(c.clientWidth * dpr));
@@ -211,11 +222,12 @@ function animate(
       scratch!.height = bh;
       sctx.imageSmoothingEnabled = true;
       sctx.clearRect(0, 0, bw, bh);
-      // object-cover, matching the <Image> underneath: the whole image,
-      // scaled to fill and centred, with any overflow cut off by the canvas.
+      // Matching the <Image> underneath, centred either way. cover: scaled
+      // to fill, overflow cut off by the canvas. contain: scaled to fit, the
+      // whole image inside the frame.
       let dw = bw;
       let dh = bw / aspect;
-      if (dh < bh) {
+      if (fit === 'cover' ? dh < bh : dh > bh) {
         dh = bh;
         dw = bh * aspect;
       }

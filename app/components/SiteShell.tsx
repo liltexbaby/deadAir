@@ -12,6 +12,7 @@ import CatalogGrid from './catalog/CatalogGrid';
 import MgmtPanel from './panels/MgmtPanel';
 import LivePanel from './panels/LivePanel';
 import StorePanel from './panels/StorePanel';
+import GalleryPanel from './panels/GalleryPanel';
 
 import { SECTIONS, SECTION_LABELS, type Section } from '@/lib/sections';
 import type { SiteContent } from '@/lib/queries';
@@ -116,12 +117,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
           />
         );
       case 'gallery':
-        return (
-          <div className="font-mono text-black/90">
-            <p className="text-xs uppercase tracking-[0.2em] text-black/50">□ GALLERY SECTION</p>
-            <p className="mt-3 text-sm text-black/60">Photos and media gallery coming soon...</p>
-          </div>
-        );
+        return <GalleryPanel items={content.gallery} />;
       default:
         return null;
     }

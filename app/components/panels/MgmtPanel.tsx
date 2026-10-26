@@ -349,7 +349,7 @@ export default function MgmtPanel({
  * then fades back — timed to the indicator square
  * filling in. Keyed on `pulse` so every step, tapped or swiped, replays it.
  */
-function StepButton({
+export function StepButton({
   label,
   disabled,
   pulse,

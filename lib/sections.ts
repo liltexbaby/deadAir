@@ -12,16 +12,13 @@ export type Section =
   | 'mgmt'
   | 'gallery';
 
-/**
- * Order shown in the nav (and stepped through by scrolling). GALLERY is left
- * out for now — it has no content yet — but stays a Section because its
- * click target and camera are baked into the GLB.
- */
+/** Order shown in the nav (and stepped through by scrolling). */
 export const SECTIONS: readonly Section[] = [
   'catalog',
   'live',
   'mgmt',
   'contact',   // PUBLISHING
+  'gallery',
   'store',
 ] as const;
 

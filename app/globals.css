@@ -49,6 +49,26 @@ html:not([data-retro]) .ui-header[data-tone="light"] .ui-wipe {
   text-shadow: none;
 }
 
+/* Headings in the typewriter face (app/layout.tsx): panel titles, the nav,
+   and names/titles that lead a block. Typewriter letters are already wide and
+   uneven, so the UI's spaced capitals would read as gaps — tracking comes
+   down and case is left as written. html:not([data-retro]): the retro skin
+   keeps its own serif. */
+html:not([data-retro]) :is(.ui-title, .ui-nav-item, .ui-nav-item .ui-wipe, .ui-surface h3) {
+  font-family: var(--font-heading), var(--font-ui), monospace;
+  font-weight: 400;
+}
+html:not([data-retro]) :is(.ui-title, .ui-nav-item, .ui-nav-item .ui-wipe) {
+  letter-spacing: 0.06em;
+  text-transform: none;
+  font-size: 15px;
+}
+html:not([data-retro]) .ui-surface .ui-title { font-size: 13px; line-height: 1; }
+html:not([data-retro]) .ui-surface h3 { font-size: 16px; }
+@media (max-width: 639px) {
+  html:not([data-retro]) :is(.ui-nav-item, .ui-nav-item .ui-wipe) { font-size: 12px; letter-spacing: 0; }
+}
+
 /* No dark-mode variant. The public site is designed light-on-fog only, and
    the old prefers-color-scheme override flipped the *default* text colour to
    near-white on phones in dark mode — anything without its own colour class
@@ -152,7 +172,7 @@ html[data-retro] :is(.ui-nav, .ui-surface) .uppercase {
 }
 /* The serif runs small at the mono sizes it inherits; step everything up. */
 html[data-retro] .ui-surface :is([class~="text-[9px]"], [class~="text-[10px]"]) { font-size: 13px; }
-html[data-retro] .ui-surface :is([class~="text-[11px]"], .text-xs) { font-size: 15px; }
+html[data-retro] .ui-surface :is([class~="text-[11px]"], .text-xs) { font-size: 12px; }
 html[data-retro] .ui-surface .text-sm { font-size: 17px; }
 html[data-retro] .ui-surface .ui-title { font-size: 21px; letter-spacing: 0.16em; }
 html[data-retro] .ui-nav :is(button, span) { font-size: 18px; letter-spacing: 0.1em; }
@@ -235,6 +255,8 @@ html[data-retro] body::before {
 @media (prefers-reduced-motion: reduce) {
   html[data-retro] body::after { animation: none; }
 }
+
+
 
 
 

@@ -288,7 +288,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
       {/* Right Panel with content */}
       <RightPanel
         isOpen={isPanelOpen}
-        title={selectedSection ? SECTION_LABELS[selectedSection].toUpperCase() : ''}
+        title={selectedSection ? SECTION_LABELS[selectedSection] : ''}
         onClose={handleClose}
         onReset={handleReset}
       >

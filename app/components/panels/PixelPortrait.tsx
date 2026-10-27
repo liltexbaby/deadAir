@@ -31,6 +31,7 @@ export default function PixelPortrait({
   fit = 'cover',
   pixelated = true,
   alt = '',
+  intro = true,
 }: {
   src: string;
   sizes: string;
@@ -41,6 +42,8 @@ export default function PixelPortrait({
   /** Nearest-neighbour scaling at rest — right for pixel-art portraits only. */
   pixelated?: boolean;
   alt?: string;
+  /** False: the first image just appears (something else animated it in). */
+  intro?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -94,7 +97,8 @@ export default function PixelPortrait({
         show(true);
         return;
       }
-      await animate(c, raw, IN_MS, 'in', alive, fit);
+      // Skipped for the very first image when the caller brings it in itself.
+      if (intro || prev !== null) await animate(c, raw, IN_MS, 'in', alive, fit);
       if (!alive()) return;
       snapshot.current = { src, image: capture(raw) };
       clear(c);
@@ -106,7 +110,7 @@ export default function PixelPortrait({
       // last fully shown.
       cancelled = true;
     };
-  }, [src, active, fit]);
+  }, [src, active, fit, intro]);
 
   return (
     <div ref={frame} className="absolute inset-0">

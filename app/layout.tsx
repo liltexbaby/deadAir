@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, M_PLUS_1p, Noto_Sans_JP, Zen_Kaku_Gothic_New } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
 // UI type. NieR: Automata's menus are set in FOT-Rodin, a commercial
@@ -11,6 +12,15 @@ const notoSansJp = Noto_Sans_JP({
   variable: "--font-noto-jp",
   subsets: ["latin"],
   weight: ["400", "500", "700"],
+});
+
+// Headings face: Love Letter Typewriter (Dixie's Delights, 1996). Shareware —
+// its licence requires registering it before professional use, so it must be
+// registered before this ships for the client. See .ui-heading in globals.css.
+const loveLetter = localFont({
+  src: "./fonts/love-letter-typewriter.ttf",
+  variable: "--font-heading",
+  display: "swap",
 });
 
 const mPlus1p = M_PLUS_1p({
@@ -73,7 +83,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${notoSansJp.variable} ${mPlus1p.variable} ${zenKaku.variable} ${retroSerif.variable} h-full antialiased`}
+      className={`${notoSansJp.variable} ${loveLetter.variable} ${mPlus1p.variable} ${zenKaku.variable} ${retroSerif.variable} h-full antialiased`}
       // RETRO_SWITCH / FONT_SWITCH may add attributes before React hydrates.
       suppressHydrationWarning
     >

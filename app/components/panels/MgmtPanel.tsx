@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 
 import type { ManagedArtistDTO } from '@/lib/queries';
@@ -17,14 +17,8 @@ const SWIPE_VELOCITY = 400;  // ...or a flick this fast, however short
  * Desktop: like LIVE — the roster as a menu on the left, and a portrait plus
  * a contact form for the hovered (or clicked) artist on the right.
  *
- * Phone: a one-at-a-time swipe carousel of artists, matching how the label's
- * own mgmt page presents its roster, with the current artist's form beneath.
- *
- * The carousel track holds every slide in normal flow and is translated by index, rather
- * than absolutely positioning one slide at a time. That way the container takes
- * the height of the tallest artist and never jumps as you page through — contact
- * counts vary (kuru has two management emails and no booking), so a
- * self-sizing container would resize on almost every transition.
+ * Phone: one artist at a time in a fixed frame, stepped like the GALLERY
+ * viewer (swipe, prev/next, arrow keys), with the current artist's form beneath.
  */
 /**
  * Also renders the PUBLISHING roster, with `showContacts={false}`: a public
@@ -48,20 +42,8 @@ export default function MgmtPanel({
   const [clicks, setClicks] = useState(0);
   // Phone: bumps per prev/next step, to replay that button's wipe.
   const [pulse, setPulse] = useState({ prev: 0, next: 0 });
-  const viewport = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
   // One draft for the whole roster, so picking another artist keeps what's typed.
   const [draft, setDraft] = useState<InquiryDraft>(EMPTY_DRAFT);
-
-  // Translate in pixels, not percentages: drag reports pixel offsets, and mixing
-  // the two units on the same `x` makes the track jump when a swipe ends.
-  useEffect(() => {
-    const el = viewport.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   const count = artists.length;
   // Clamped rather than wrapping: the prev/next controls disable at the ends,
@@ -225,20 +207,63 @@ export default function MgmtPanel({
     </div>
 
     {/* ------------------------------------------------------------ phone */}
-    {/* @container so slides respond to the panel's width, not the viewport's. */}
-    <div className="@container w-full sm:hidden" aria-roledescription="carousel" aria-label={label}>
+    {/* Laid out like the GALLERY viewer: one frame that stays put, the
+        portrait changing inside it with the pixel break-up / resolve, a swipe
+        that rubber-bands under the finger, and prev / name / next beneath. */}
+    <div className="w-full sm:hidden" aria-roledescription="carousel" aria-label={label}>
       {/* No visible count; screen readers still hear where they are. */}
       <span aria-live="polite" className="sr-only">
         {artists[index]?.name}, {index + 1} of {count}
       </span>
 
-      {/* Controls sit above the carousel, not below it.
-          Now that the portrait fills the panel width, a full slide is taller
-          than the viewport on a phone — controls underneath landed ~50px below
-          the fold, so paging required scrolling first. Above the image they are
-          always in view on both sizes, and it avoids a sticky bar that would
-          have to fake the panel's translucent background. */}
-      <div className="mb-5 flex items-center justify-between gap-2 border-y border-black/10 py-1.5">
+      {/* Squares that fill from the left — the same wipe as the desktop
+          roster — and empty back out when you move on. Where the gallery
+          viewer has its counter. */}
+      <ol className="flex items-center justify-center border-b border-black/10 pb-1.5">
+        {artists.map((artist, i) => (
+          <li key={artist.id}>
+            <button
+              onClick={() => go(i)}
+              aria-label={artist.name}
+              aria-current={i === index}
+              // Padding is the tap target; the square itself is 10px.
+              className="block p-1.5 cursor-pointer"
+            >
+              <span className="relative block h-2.5 w-2.5 border border-black/40">
+                <span
+                  className={`ui-pip absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                    i === index ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
+                  }`}
+                />
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+
+      {/* Sources are square, so a square frame crops nothing. */}
+      <motion.div
+        className="relative mt-5 aspect-square w-full touch-pan-y select-none border border-black/10"
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.15}
+        onDragEnd={(_, info) => {
+          const { offset, velocity } = info;
+          if (offset.x < -SWIPE_DISTANCE || velocity.x < -SWIPE_VELOCITY) step(1);
+          else if (offset.x > SWIPE_DISTANCE || velocity.x > SWIPE_VELOCITY) step(-1);
+        }}
+      >
+        {artists[index].imageUrl && (
+          <PixelPortrait
+            src={artists[index].imageUrl}
+            alt={artists[index].name}
+            // The panel is full-width on a phone.
+            sizes="100vw"
+          />
+        )}
+      </motion.div>
+
+      <div className="mt-5 flex items-center justify-between gap-3 border-t border-black/10 pt-2">
         <StepButton
           label="‹ prev"
           aria-label="Previous artist"
@@ -246,31 +271,14 @@ export default function MgmtPanel({
           pulse={pulse.prev}
           onClick={() => step(-1)}
         />
-
-        {/* Squares that fill from the left — the same wipe as the desktop
-            roster — and empty back out when you move on. */}
-        <ol className="flex items-center">
-          {artists.map((artist, i) => (
-            <li key={artist.id}>
-              <button
-                onClick={() => go(i)}
-                aria-label={artist.name}
-                aria-current={i === index}
-                // Padding is the tap target; the square itself is 10px.
-                className="block p-1.5 cursor-pointer"
-              >
-                <span className="relative block h-2.5 w-2.5 border border-black/40">
-                  <span
-                    className={`ui-pip absolute inset-0 bg-black/80 transition-[clip-path] ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                      i === index ? '[clip-path:inset(0_0_0_0)] duration-300' : '[clip-path:inset(0_100%_0_0)] duration-200'
-                    }`}
-                  />
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
-
+        <div className="min-w-0 text-center">
+          <h3 className="truncate font-mono text-sm text-black/90">{artists[index].name}</h3>
+          {artists[index].externalLabel && (
+            <p className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-[0.15em] text-black/30">
+              {artists[index].externalLabel}
+            </p>
+          )}
+        </div>
         <StepButton
           label="next ›"
           aria-label="Next artist"
@@ -280,65 +288,7 @@ export default function MgmtPanel({
         />
       </div>
 
-      <div ref={viewport} className="overflow-hidden">
-        <motion.ul
-          className="flex items-stretch"
-          animate={{ x: -index * width }}
-          transition={{ type: 'tween', duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          drag="x"
-          // Constrained around the *current* slide's resting position. These
-          // are absolute x values, and the old { left: 0, right: 0 } meant
-          // "slide 1" — so from any later artist, starting a swipe yanked the
-          // track back toward the first one, and a short drag that didn't page
-          // left it stranded there.
-          dragConstraints={{ left: -index * width, right: -index * width }}
-          dragElastic={0.25}
-          onDragEnd={(_, info) => {
-            const { offset, velocity } = info;
-            if (offset.x < -SWIPE_DISTANCE || velocity.x < -SWIPE_VELOCITY) step(1);
-            else if (offset.x > SWIPE_DISTANCE || velocity.x > SWIPE_VELOCITY) step(-1);
-          }}
-        >
-          {artists.map((artist, i) => (
-            <li
-              key={artist.id}
-              // Off-screen slides stay in the DOM to hold the track's height, so
-              // they must be hidden from assistive tech and taken out of the tab
-              // order — otherwise focus walks into invisible contact links.
-              aria-hidden={i !== index}
-              inert={i !== index}
-              className="w-full shrink-0 select-none"
-            >
-              {artist.imageUrl && (
-                // Sources are square, so a square box crops nothing. Only the
-                // slide in view pixels in; the one leaving pixels out.
-                <div className="relative mb-5 aspect-square w-full border border-black/10">
-                  <PixelPortrait
-                    src={artist.imageUrl}
-                    // The panel is full-width on a phone.
-                    sizes="100vw"
-                    active={i === index}
-                  />
-                </div>
-              )}
-
-              <div className="flex items-baseline gap-3">
-                <h3 className="font-mono text-sm text-black/90">{artist.name}</h3>
-                {artist.externalLabel && (
-                  <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-black/30">
-                    {artist.externalLabel}
-                  </span>
-                )}
-              </div>
-            </li>
-          ))}
-        </motion.ul>
-      </div>
-
-      {/* Outside the track: one live form for the current artist, rather than
-          a copy in every (mostly hidden) slide. */}
       {form(artists[index])}
-
     </div>
     </>
   );

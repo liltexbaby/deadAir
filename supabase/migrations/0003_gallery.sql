@@ -6,6 +6,39 @@
 -- set in, upload public/gallery/* to the `media` bucket under gallery/ and
 -- insert one row per image (scripts can do this; see lib/galleryManifest.ts
 -- for titles, paths and sizes).
+--
+-- Self-contained: it (re)defines the two helpers it uses, which 0001 also
+-- creates, because a database set up some other way may not have them
+-- ("function public.set_updated_at() does not exist"). Both are
+-- `create or replace` with 0001's exact definitions, so this changes nothing
+-- where they already exist. Safe to run more than once.
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- security definer so the check itself bypasses RLS on admin_users, which
+-- would otherwise recurse (reading admin_users requires being an admin).
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.admin_users where user_id = auth.uid()
+  );
+$$;
+
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated, anon;
 
 create table if not exists public.gallery_items (
   id          uuid primary key default gen_random_uuid(),

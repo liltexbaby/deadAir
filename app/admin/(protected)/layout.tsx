@@ -26,7 +26,9 @@ export default async function ProtectedAdminLayout({ children }: { children: Rea
               ['/admin', 'releases'],
               ['/admin/artists', 'artists'],
               ['/admin/live', 'live'],
+              ['/admin/gallery', 'gallery'],
               ['/admin/settings', 'contact'],
+              ['/admin/team', 'team'],
             ].map(([href, label]) => (
               <Link
                 key={href}

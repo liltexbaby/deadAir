@@ -10,7 +10,7 @@ import type { ActionState } from './types';
  * recipient is resolved here (their management address, else the first one
  * listed), so the form can't be pointed at an arbitrary inbox.
  *
- * Delivery is NOT wired up yet — see deliver() below.
+ * Sent through Resend — see deliver() below.
  */
 
 const InquirySchema = z.object({
@@ -83,14 +83,55 @@ export async function sendInquiry(_prev: ActionState, formData: FormData): Promi
 }
 
 /**
- * TODO(backend): send the email. Until then, development logs the message and
- * reports success so the form can be tried end to end; production refuses
- * rather than silently dropping someone's message.
+ * Sends through Resend's HTTP API (https://resend.com). Needs two settings on
+ * the host:
+ *   RESEND_API_KEY  — from the Resend dashboard
+ *   INQUIRY_FROM    — a sender on a domain verified in Resend, e.g.
+ *                     "deadAir <messages@deadairrecords.com>"
+ * Replies go straight to the visitor (reply_to), so the artist's team just
+ * hits reply. Without the settings, development logs the message and reports
+ * success so the form can be tried end to end; production refuses rather than
+ * silently dropping someone's message.
  */
 async function deliver(inquiry: Inquiry): Promise<ActionState> {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[inquiry] would send:', { ...inquiry, to: '(redacted)' });
-    return { ok: true };
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.INQUIRY_FROM;
+  if (!key || !from) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[inquiry] would send:', { ...inquiry, to: '(redacted)' });
+      return { ok: true };
+    }
+    return { error: 'messages can’t be sent just yet — please try again soon' };
   }
-  return { error: 'messages can’t be sent just yet — please try again soon' };
+
+  const text = [
+    `${inquiry.fromName} <${inquiry.fromEmail}> sent a message about ${inquiry.artistName} through deadAir:`,
+    '',
+    inquiry.message,
+    '',
+    '—',
+    'Reply to this email to answer them directly.',
+  ].join('\n');
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to: [inquiry.to],
+        reply_to: `${inquiry.fromName.replace(/[<>"]/g, '')} <${inquiry.fromEmail}>`,
+        subject: inquiry.subject,
+        text,
+      }),
+    });
+    if (!res.ok) {
+      console.error('[inquiry] resend refused:', res.status, (await res.text()).slice(0, 300));
+      return { error: 'that didn’t go through — please try again in a bit' };
+    }
+  } catch (err) {
+    console.error('[inquiry] send failed:', err);
+    return { error: 'that didn’t go through — please try again in a bit' };
+  }
+  return { ok: true };
 }

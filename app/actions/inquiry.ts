@@ -7,8 +7,9 @@ import type { ActionState } from './types';
 /**
  * Public contact form on the MGMT panel: a visitor messages an artist's team
  * without ever seeing their address. The browser only sends the artist id; the
- * recipient is resolved here (their management address, else the first one
- * listed), so the form can't be pointed at an arbitrary inbox.
+ * recipients are resolved here, so the form can't be pointed at an arbitrary
+ * inbox: every message goes to the label's mgmt inbox, with the label heads
+ * and the artist's own management contacts CC'd. Booking agents (outside agencies) are left off.
  *
  * Sent through Resend — see deliver() below.
  */
@@ -26,11 +27,18 @@ const InquirySchema = z.object({
   website: z.string().max(0).optional(),
 });
 
+// Every message lands here; set INQUIRY_TO on the host to change it.
+const MGMT_INBOX = 'mgmt@deadairrecords.com';
+// CC'd on every message, whichever artist it's about; INQUIRY_CC on the host
+// (comma-separated) replaces this list.
+const ALWAYS_CC = ['jesse@deadairrecords.com', 'lucas@deadairrecords.com'];
+
 // Not exported: every export of a 'use server' module becomes an action
 // reference (see ./types.ts).
 type Inquiry = {
   artistName: string;
   to: string;
+  cc: string[];
   subject: string;
   fromName: string;
   fromEmail: string;
@@ -64,8 +72,16 @@ export async function sendInquiry(_prev: ActionState, formData: FormData): Promi
   const contacts = ((artist.artist_contacts ?? []) as { role: string; email: string | null; position: number }[])
     .filter((c) => c.email)
     .sort((a, b) => a.position - b.position);
-  const to = contacts.find((c) => c.role === 'management')?.email ?? contacts[0]?.email;
-  if (!to) return { error: 'this artist isn’t taking messages yet' };
+  // Lowercased so "Lucas@" and "lucas@" don't both get a copy.
+  const management = contacts
+    .filter((c) => c.role === 'management')
+    .map((c) => c.email!.trim().toLowerCase());
+  if (management.length === 0) return { error: 'this artist isn’t taking messages yet' };
+  const to = (process.env.INQUIRY_TO || MGMT_INBOX).trim().toLowerCase();
+  const always = process.env.INQUIRY_CC ? process.env.INQUIRY_CC.split(',') : ALWAYS_CC;
+  const cc = [...new Set([...always.map((e) => e.trim().toLowerCase()).filter(Boolean), ...management])].filter(
+    (e) => e !== to,
+  );
 
   // Same per-artist subject the old mailto links used; {artist} -> name.
   const subject = artist.email_subject
@@ -75,6 +91,7 @@ export async function sendInquiry(_prev: ActionState, formData: FormData): Promi
   return deliver({
     artistName: artist.name,
     to,
+    cc,
     subject,
     fromName: input.name,
     fromEmail: input.email,
@@ -98,7 +115,7 @@ async function deliver(inquiry: Inquiry): Promise<ActionState> {
   const from = process.env.INQUIRY_FROM;
   if (!key || !from) {
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[inquiry] would send:', { ...inquiry, to: '(redacted)' });
+      console.log('[inquiry] would send:', { ...inquiry, to: '(redacted)', cc: `(${inquiry.cc.length} redacted)` });
       return { ok: true };
     }
     return { error: 'messages can’t be sent just yet — please try again soon' };
@@ -120,6 +137,7 @@ async function deliver(inquiry: Inquiry): Promise<ActionState> {
       body: JSON.stringify({
         from,
         to: [inquiry.to],
+        ...(inquiry.cc.length ? { cc: inquiry.cc } : {}),
         reply_to: `${inquiry.fromName.replace(/[<>"]/g, '')} <${inquiry.fromEmail}>`,
         subject: inquiry.subject,
         text,

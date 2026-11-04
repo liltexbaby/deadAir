@@ -3,6 +3,8 @@ import 'server-only';
 import { createPublicClient } from '@/lib/supabase/public';
 import { getStoreProducts, type StoreProductDTO } from './store';
 import { GALLERY_MANIFEST } from './galleryManifest';
+import { getRadioStations } from './nts';
+import type { Station } from './radio';
 
 /**
  * Read side. Everything here returns a narrow DTO rather than a raw row, so the
@@ -78,6 +80,8 @@ export interface SiteContent {
   /** STORE panel, live from Shopify; null if the shop couldn't be reached. */
   storeProducts: StoreProductDTO[] | null;
   gallery: GalleryItemDTO[];
+  /** The home-screen radio's stations (NTS). */
+  radio: Station[];
 }
 
 const CONTACT_ROLE_LABELS: Record<string, string> = {
@@ -109,9 +113,8 @@ export async function getReleases(): Promise<ReleaseDTO[]> {
       'id, catalog_number, title, artist_name_override, cover_path, spotify_url, apple_music_url, bandcamp_url, youtube_url, soundcloud_url, store_url, artists(name)',
     )
     .eq('published', true)
-    // Newest first. Undated releases go last; same-day ones by catalog number.
-    .order('release_date', { ascending: false, nullsFirst: false })
-    .order('catalog_number', { ascending: false });
+    // By dA number (client's call: catalog order, not release date).
+    .order('catalog_number', { ascending: true });
 
   if (error) throw new Error(`getReleases: ${error.message}`);
 
@@ -251,13 +254,14 @@ export async function getSiteSettings(): Promise<SiteSettingsDTO | null> {
 
 /** Single entry point for the public page. */
 export async function getSiteContent(): Promise<SiteContent> {
-  const [releases, rosters, events, settings, storeProducts, gallery] = await Promise.all([
+  const [releases, rosters, events, settings, storeProducts, gallery, radio] = await Promise.all([
     getReleases(),
     getRosters(),
     getEvents(),
     getSiteSettings(),
     getStoreProducts(),
     getGallery(),
+    getRadioStations(),
   ]);
 
   return {
@@ -268,6 +272,7 @@ export async function getSiteContent(): Promise<SiteContent> {
     settings,
     storeProducts,
     gallery,
+    radio,
   };
 }
 

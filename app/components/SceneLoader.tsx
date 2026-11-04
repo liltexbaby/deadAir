@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useProgress } from '@react-three/drei';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCoarsePointer } from '@/lib/useCoarsePointer';
 
 const SEGMENTS = 20;
 
@@ -36,12 +35,11 @@ export default function SceneLoader({
   onEnter: () => void;
 }) {
   const { progress } = useProgress();
-  const coarse = useCoarsePointer();
   // Ready can arrive by the fallback timer with the model still loading.
   const pct = ready ? Math.max(Math.round(progress), 100) : Math.round(progress);
   const lit = Math.round((pct / 100) * SEGMENTS);
   const waiting = ready && !done;
-  // How much of the message has typed out: 0 title, 1 + line, 2 all in.
+  // 2 once the message has typed out (then the button comes in).
   const [typed, setTyped] = useState(0);
 
   useEffect(() => {
@@ -69,13 +67,13 @@ export default function SceneLoader({
             waiting ? 'cursor-pointer' : 'pointer-events-none'
           }`}
           role={waiting ? 'button' : 'status'}
-          aria-label={waiting ? 'Receive the transmission' : `Loading, ${pct}%`}
+          aria-label={waiting ? 'Tune in' : `Loading, ${pct}%`}
           onClick={waiting ? onEnter : undefined}
         >
           <AnimatePresence mode="wait">
             {waiting ? (
-              // Ready: a message from the label — its logo, what's coming in
-              // (typed out), then the action. A see-through box, roomy inside.
+              // Ready: a message from the label — its logo, one typed line,
+              // then TUNE IN. A see-through box, roomy inside.
               // Size, padding and edge are inline so it's the same box on any
               // screen even if a stylesheet arrives late or stale.
               <motion.div
@@ -122,13 +120,12 @@ export default function SceneLoader({
                     className="invert opacity-90"
                     style={{ width: 44, height: 'auto', flexShrink: 0 }}
                   />
-                  <span style={{ minWidth: 0, flex: 1 }}>
-                    <h3 className="text-sm leading-tight text-black/90">
-                      <TypeOut text="Incoming transmission" onDone={() => setTyped(1)} />
-                    </h3>
-                    <span className="mt-1.5 block font-mono text-[11px] leading-snug text-black/55">
-                      <TypeOut text="A signal from deadAir Records is incoming." speed={16} start={typed >= 1} onDone={() => setTyped(2)} />
-                    </span>
+                  {/* Broken by hand so the label's name stays whole on line two. */}
+                  <span
+                    className="block font-mono text-[11px] leading-snug text-black/60"
+                    style={{ minWidth: 0, flex: 1, whiteSpace: 'pre-line' }}
+                  >
+                    <TypeOut text={'Incoming transmission from\ndeadAir Records'} speed={24} onDone={() => setTyped(2)} />
                   </span>
                 </div>
                 {/* The action, once the message is in: fades in once, then the
@@ -142,13 +139,20 @@ export default function SceneLoader({
                   transition={{ duration: 1.1, ease: [0.25, 0.1, 0.25, 1] }}
                 >
                   <motion.span
-                    className="ui-wipe block bg-black/80 text-center font-mono text-[10px] uppercase tracking-[0.25em] text-white"
-                    style={{ paddingTop: 10, paddingBottom: 10 }}
+                    // The typewriter face of the site's headings (Love Letter).
+                    className="ui-wipe block bg-black/80 text-center text-white"
+                    style={{
+                      paddingTop: 9,
+                      paddingBottom: 9,
+                      fontFamily: 'var(--font-heading), var(--font-ui), monospace',
+                      fontSize: 15,
+                      letterSpacing: '0.12em',
+                    }}
                     animate={{ opacity: 0.7 }}
                     initial={{ opacity: 1 }}
                     transition={{ duration: 1.6, repeat: Infinity, repeatType: 'mirror', ease: 'easeInOut', delay: 1.1 }}
                   >
-                    [ {coarse ? 'tap' : 'click'} to receive ]
+                    TUNE IN
                   </motion.span>
                 </motion.span>
               </motion.div>

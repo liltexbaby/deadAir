@@ -315,7 +315,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
       {/* Transmissions radio under the tower. Home screen only: it fades out
           while a section is open (still playing), and boots with the rest. */}
-      <RadioPlayer visible={booted && !isPanelOpen} />
+      <RadioPlayer visible={booted && !isPanelOpen} stations={content.radio} />
 
       {/* Right Panel with content */}
       <RightPanel

@@ -11,9 +11,8 @@ export default async function AdminReleases() {
   const { data: releases, error } = await supabase
     .from('releases')
     .select('id, catalog_number, title, published, artists(name)')
-    // Same order as the site's catalog: newest first.
-    .order('release_date', { ascending: false, nullsFirst: false })
-    .order('catalog_number', { ascending: false });
+    // Same order as the site's catalog: by dA number.
+    .order('catalog_number', { ascending: true });
 
   if (error) {
     return <p className="font-mono text-xs text-red-400/80">failed to load: {error.message}</p>;

@@ -3,17 +3,14 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
 import { motion } from 'framer-motion';
 
-import { SOUNDCLOUD_OPTIONS, STATIONS, embedFor } from '@/lib/radio';
+import { SOUNDCLOUD_OPTIONS, STATIONS, embedFor, type Station } from '@/lib/radio';
 import { duckAmbience, isMuted, playSfx, subscribeMuted } from '@/lib/sound';
 import { useIsNarrow } from '@/lib/useCoarsePointer';
 import { loadSoundCloudApi, startPlaying, type ScWidget } from './soundcloud';
 import PixelVeil from './PixelVeil';
 
-const COUNT = STATIONS.length;
-const LAST = COUNT - 1;
 // Dial sweep: the knob turns through 270°, stations spread evenly across it.
 const SWEEP = 270;
-const DEG_PER_STATION = SWEEP / Math.max(LAST, 1);
 // Drag sensitivity: this many px of travel moves one station.
 const PX_PER_STATION = 28;
 // Frequency strip: two minor ticks between stations, TICK px apart.
@@ -26,7 +23,6 @@ const WHEEL_GAP_MS = 220;
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 const pad = (i: number) => String(i + 1).padStart(2, '0');
-const clamp = (v: number) => Math.min(Math.max(v, 0), LAST);
 
 /**
  * deadAir Transmissions: the radio, offered from the home screen.
@@ -46,7 +42,12 @@ const clamp = (v: number) => Math.min(Math.max(v, 0), LAST);
  * preset. Moving off a station breaks the player up into pixel cells (like
  * the MGMT portraits); settling on one starts its show and the cells clear.
  */
-export default function RadioPlayer({ visible }: { visible: boolean }) {
+export default function RadioPlayer({ visible, stations = STATIONS }: { visible: boolean; stations?: Station[] }) {
+  // The station list comes from NTS (lib/nts.ts), so its length varies.
+  const COUNT = stations.length;
+  const LAST = COUNT - 1;
+  const DEG_PER_STATION = SWEEP / Math.max(LAST, 1);
+  const clamp = (v: number) => Math.min(Math.max(v, 0), LAST);
   const narrow = useIsNarrow();
   // The site's sound toggle silences the radio too.
   const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false);
@@ -98,7 +99,7 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
   /** Ask the right player for station i; the cells clear once it's started. */
   const bringIn = (i: number) => {
     const n = ++seq.current;
-    const s = STATIONS[i];
+    const s = stations[i];
     setLoaded(i);
     if (s.mixcloud) {
       widget.current?.pause();
@@ -135,7 +136,7 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
           if (widget.current) return;
           widget.current = w;
           w.setVolume(isMuted() ? 0 : 100);
-          const want = STATIONS[wanted.current];
+          const want = stations[wanted.current];
           // Retuned to another SoundCloud show while the player was starting.
           if (want.soundcloud && el.src.indexOf(encodeURIComponent(want.soundcloud)) === -1) bringIn(wanted.current);
           else if (want.soundcloud) {
@@ -263,8 +264,8 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
     e.stopPropagation();
   };
 
-  const station = STATIONS[index];
-  const showing = loaded !== null ? STATIONS[loaded] : null;
+  const station = stations[index];
+  const showing = loaded !== null ? stations[loaded] : null;
   const live = loaded !== null && !scanning;
   const angle = -SWEEP / 2 + pos * DEG_PER_STATION;
   const shown = powered && open && visible;
@@ -294,7 +295,7 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
         <svg viewBox="-50 -50 100 100" className="h-full w-full overflow-visible" aria-hidden>
           {/* Ring, and a mark per station; the tuned one long and dark. */}
           <circle r="34" fill="none" stroke="black" strokeOpacity="0.35" strokeWidth="1.5" />
-          {STATIONS.map((_, i) => {
+          {stations.map((_, i) => {
             const a = ((-SWEEP / 2 + i * DEG_PER_STATION - 90) * Math.PI) / 180;
             const on = i === index;
             return (
@@ -339,7 +340,7 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
           transition: dragging ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
         }}
       >
-        {STATIONS.map((s, i) => (
+        {stations.map((s, i) => (
           <div key={s.freq} className="flex items-end">
             {i > 0 &&
               [0, 1].map((k) => (
@@ -545,15 +546,21 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
               </div>
             </div>
             {slot}
-            <div className="grid grid-cols-5 gap-px" role="group" aria-label="Stations">
-              {STATIONS.map((s, i) => (
+            {/* Two rows, however many stations NTS lists. */}
+            <div
+              className="grid gap-px"
+              style={{ gridTemplateColumns: `repeat(${Math.ceil(COUNT / 2)}, 1.5rem)` }}
+              role="group"
+              aria-label="Stations"
+            >
+              {stations.map((s, i) => (
                 <button
                   key={s.freq}
                   onClick={() => tune(i)}
                   aria-label={`${s.freq} — ${s.artist}, ${s.date}`}
                   aria-pressed={i === index}
                   data-sfx="hover-only"
-                  className="relative flex h-7 w-7 items-center justify-center font-mono text-[9px] tabular-nums text-black/50 transition-colors hover:bg-black/[0.05] hover:text-black cursor-pointer"
+                  className="relative flex h-7 w-6 items-center justify-center font-mono text-[9px] tabular-nums text-black/50 transition-colors hover:bg-black/[0.05] hover:text-black cursor-pointer"
                 >
                   {pad(i)}
                   <span aria-hidden className={`${wipe(i === index)} flex items-center justify-center`}>
@@ -613,7 +620,7 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
 
             {/* Stations as a list, with the roster's selection bar. */}
             <ul className="mt-6 divide-y divide-black/10 border-y border-black/10" role="group" aria-label="Stations">
-              {STATIONS.map((s, i) => {
+              {stations.map((s, i) => {
                 const row = (inverted: boolean) => (
                   <>
                     <span className={`w-12 font-mono text-[10px] tabular-nums ${inverted ? 'text-white/80' : 'text-black/55'}`}>{s.freq}</span>

@@ -2,9 +2,11 @@
  * deadAir Transmissions — the label's NTS radio shows, as stations on the
  * home-screen radio (app/components/radio/RadioPlayer.tsx).
  *
- * Preliminary: hardcoded from the old site's /radio page. Newest first, and
- * frequencies climb with age like a dial being turned down the band. Each show
- * is a SoundCloud track or a Mixcloud page.
+ * The live list comes from NTS (lib/nts.ts, read with the rest of the page),
+ * so new episodes appear by themselves. STATIONS below is the fallback for when
+ * NTS can't be reached. Newest first; frequencies spread across the FM band
+ * (tuneBand), climbing with age like a dial being turned down. Each show is a
+ * SoundCloud track or a Mixcloud page.
  */
 export interface Station {
   freq: string;
@@ -17,7 +19,7 @@ export interface Station {
   mixcloud?: string;
 }
 
-export const STATIONS: Station[] = [
+export const STATIONS: Station[] = tuneBand([
   { freq: '88.1', artist: 'Jane Remover', date: '27 Feb 2026', tags: ['Experimental Hip Hop', 'Club', 'Hyperpop'], soundcloud: 'https://soundcloud.com/janeremover/nts-260227' },
   { freq: '90.3', artist: 'By Storm', date: '30 Jan 2026', tags: ['Experimental Hip Hop', 'Beats', 'Chopped N Screwed'], soundcloud: 'https://soundcloud.com/user-202286394-991268468/deadair-transmissions-w-storm' },
   { freq: '92.7', artist: 'Blue Harbor Radio', date: '05 Dec 2025', tags: ['Folk', 'Indie Rock'], mixcloud: '/NTSRadio/deadair-transmissions-w-blue-harbor-radio-5th-december-2025/' },
@@ -28,7 +30,13 @@ export const STATIONS: Station[] = [
   { freq: '103.7', artist: 'Photographic Memory', date: '20 Jun 2025', tags: ['Electronica', 'Experimental', 'Indie Rock'], soundcloud: 'https://soundcloud.com/photographic-memory/photographic-memory-nts-mix' },
   { freq: '105.9', artist: 'syzy', date: '23 May 2025', tags: ['Hyperpop', 'Experimental', 'Dark Ambient'], soundcloud: 'https://soundcloud.com/syzymusic/syzy-nts-radio-052225' },
   { freq: '108.0', artist: 'kmoe', date: '25 Apr 2025', tags: ['Techno', 'Hyperpop', 'House'], soundcloud: 'https://soundcloud.com/kmoethekid/nts042425' },
-];
+]);
+
+/** Spread a list across 88.1–108.0 FM, newest at the bottom of the band. */
+export function tuneBand(list: Station[]): Station[] {
+  const step = list.length > 1 ? (108 - 88.1) / (list.length - 1) : 0;
+  return list.map((s, i) => ({ ...s, freq: (88.1 + i * step).toFixed(1) }));
+}
 
 /** How the SoundCloud player is set up, for its first load and every retune. */
 export const SOUNDCLOUD_OPTIONS = {

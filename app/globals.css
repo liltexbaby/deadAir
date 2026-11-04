@@ -66,7 +66,14 @@ html:not([data-retro]) :is(.ui-title, .ui-nav-item, .ui-nav-item .ui-wipe) {
 html:not([data-retro]) .ui-surface .ui-title { font-size: 13px; line-height: 1; }
 html:not([data-retro]) .ui-surface h3 { font-size: 16px; }
 @media (max-width: 639px) {
-  html:not([data-retro]) :is(.ui-nav-item, .ui-nav-item .ui-wipe) { font-size: 12px; letter-spacing: 0; }
+  /* Scales with the screen so all six items ("Management" is the long one)
+     stay on one line down to a 320px phone; 12px is the most it gets. */
+  html:not([data-retro]) :is(.ui-nav-item, .ui-nav-item .ui-wipe) {
+    font-size: clamp(9px, 3vw, 12px);
+    letter-spacing: 0;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
 }
 
 /* No dark-mode variant. The public site is designed light-on-fog only, and

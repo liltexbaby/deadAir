@@ -114,7 +114,7 @@ export default function ArtistForm({
             className="accent-white/80"
           />
           <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/50">
-            managed — show on the mgmt panel
+            managed — show on the management panel
           </span>
         </label>
 
@@ -169,10 +169,10 @@ export default function ArtistForm({
       </div>
 
       <div className="mt-9">
-        <span className={labelCls}>email prompt — mgmt panel</span>
+        <span className={labelCls}>email prompt — management panel</span>
         <p className="mt-2 font-mono text-[10px] leading-relaxed text-white/25">
           pre-filled when a visitor clicks one of this artist&apos;s emails. {'{artist}'} becomes the
-          artist&apos;s name. leave the subject empty for the default &ldquo;mgmt inquiry — name&rdquo;.
+          artist&apos;s name. leave the subject empty for the default &ldquo;inquiry — name&rdquo;.
         </p>
         <label htmlFor="email_subject" className="mt-4 block font-mono text-[10px] text-white/30">
           subject

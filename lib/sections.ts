@@ -35,7 +35,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   live: 'Live',
   store: 'Store',
   contact: 'Publishing',
-  mgmt: 'Mgmt',
+  mgmt: 'Management',
   gallery: 'Gallery',
 };
 

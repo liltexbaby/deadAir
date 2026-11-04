@@ -8,11 +8,15 @@ import type { ActionState } from './types';
  * Public contact form on the MGMT panel: a visitor messages an artist's team
  * without ever seeing their address. The browser only sends the artist id; the
  * recipients are resolved here, so the form can't be pointed at an arbitrary
- * inbox: every message goes to the label's mgmt inbox, with the label heads
- * and the artist's own management contacts CC'd. Booking agents (outside agencies) are left off.
+ * inbox. Every message goes to the label's mgmt inbox, with the artist's own
+ * management contacts (as set in /admin/artists) CC'd. Booking agents
+ * (outside agencies) are left off.
  *
  * Sent through Resend — see deliver() below.
  */
+
+// Every message goes here; INQUIRY_TO on the host changes it.
+const MGMT_INBOX = 'mgmt@deadairrecords.com';
 
 const InquirySchema = z.object({
   artistId: z.uuid(),
@@ -26,12 +30,6 @@ const InquirySchema = z.object({
   // Honeypot: hidden from people, filled in by naive bots.
   website: z.string().max(0).optional(),
 });
-
-// Every message lands here; set INQUIRY_TO on the host to change it.
-const MGMT_INBOX = 'mgmt@deadairrecords.com';
-// CC'd on every message, whichever artist it's about; INQUIRY_CC on the host
-// (comma-separated) replaces this list.
-const ALWAYS_CC = ['jesse@deadairrecords.com', 'lucas@deadairrecords.com'];
 
 // Not exported: every export of a 'use server' module becomes an action
 // reference (see ./types.ts).
@@ -78,10 +76,7 @@ export async function sendInquiry(_prev: ActionState, formData: FormData): Promi
     .map((c) => c.email!.trim().toLowerCase());
   if (management.length === 0) return { error: 'this artist isn’t taking messages yet' };
   const to = (process.env.INQUIRY_TO || MGMT_INBOX).trim().toLowerCase();
-  const always = process.env.INQUIRY_CC ? process.env.INQUIRY_CC.split(',') : ALWAYS_CC;
-  const cc = [...new Set([...always.map((e) => e.trim().toLowerCase()).filter(Boolean), ...management])].filter(
-    (e) => e !== to,
-  );
+  const cc = [...new Set(management)].filter((e) => e !== to);
 
   // Same per-artist subject the old mailto links used; {artist} -> name.
   const subject = artist.email_subject

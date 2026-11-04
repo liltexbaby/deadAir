@@ -93,7 +93,7 @@ const HOME_PAN_Y_NARROW = 0.05;
 // LIGHTING SETTINGS — dusk / overcast.
 // Kept deliberately dim: the tower's own fixtures below are meant to read as
 // the brightest things in frame, which they can't do against a bright HDRI.
-const AMBIENT_LIGHT = 0.0;
+const AMBIENT_LIGHT = 0.5;
 const AMBIENT_COLOR = '#8fa3b0';        // cool overcast fill
 const KEY_LIGHT_INTENSITY = 0.0;
 const KEY_LIGHT_COLOR = '#000000';      // weak, low sun

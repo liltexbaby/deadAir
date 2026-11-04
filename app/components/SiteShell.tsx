@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import ModelViewer, { type HeaderTone } from './ModelViewer';
 import SoundEffects from './SoundEffects';
-import { isMuted, playSfx, startAmbience, unlockSound } from '@/lib/sound';
+import { playSfx, startAmbience, unlockSound } from '@/lib/sound';
 import SoundToggle from './SoundToggle';
 import Navigation from './Navigation';
 import RightPanel from './RightPanel';
@@ -181,8 +181,8 @@ export default function SiteShell({ content }: { content: SiteContent }) {
   // still loading after BOOT_FALLBACK_MS) and the loader asks for a tap.
   // `booted`: the visitor tapped — the tower reveals, the UI comes online and
   // the boot-up sound plays into the drone. The tap is the gesture browsers
-  // require before any audio. With sound switched off there's nothing to
-  // wait for, so it boots straight away, silently.
+  // require before any audio. With sound switched off the box still shows
+  // (it's the intro); the tap then boots the site silently.
   const [ready, setReady] = useState(false);
   const [booted, setBooted] = useState(false);
   const boot = useCallback(() => setReady(true), []);
@@ -195,12 +195,6 @@ export default function SiteShell({ content }: { content: SiteContent }) {
     startAmbience();
     setBooted(true);
   }, []);
-  useEffect(() => {
-    if (ready && !booted && isMuted()) {
-      const t = setTimeout(() => setBooted(true), 0);
-      return () => clearTimeout(t);
-    }
-  }, [ready, booted]);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   useEffect(() => {
     // The lighter 1K-texture tower everywhere; dev-only ?fulltower loads the

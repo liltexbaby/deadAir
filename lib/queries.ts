@@ -4,7 +4,7 @@ import { createPublicClient } from '@/lib/supabase/public';
 import { getStoreProducts, type StoreProductDTO } from './store';
 import { GALLERY_MANIFEST } from './galleryManifest';
 import { getRadioStations } from './nts';
-import type { Station } from './radio';
+import { STATIONS, type Station } from './radio';
 
 /**
  * Read side. Everything here returns a narrow DTO rather than a raw row, so the
@@ -252,16 +252,38 @@ export async function getSiteSettings(): Promise<SiteSettingsDTO | null> {
   };
 }
 
-/** Single entry point for the public page. */
+/**
+ * One piece of the page, made sturdy: a failed read (a Supabase or network
+ * blip) is retried once, then falls back to the last copy this server read
+ * successfully, and only then to empty. A hiccup never takes the whole page
+ * down — before, any single failed query threw and visitors got Next's
+ * "This page couldn't load" screen.
+ */
+const lastGood = new Map<string, unknown>();
+async function sturdy<T>(name: string, read: () => Promise<T>, empty: T): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const value = await read();
+      lastGood.set(name, value);
+      return value;
+    } catch (err) {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
+      else console.error(`[site] ${name} failed twice, using fallback:`, err);
+    }
+  }
+  return (lastGood.get(name) as T | undefined) ?? empty;
+}
+
+/** Single entry point for the public page. Never throws. */
 export async function getSiteContent(): Promise<SiteContent> {
   const [releases, rosters, events, settings, storeProducts, gallery, radio] = await Promise.all([
-    getReleases(),
-    getRosters(),
-    getEvents(),
-    getSiteSettings(),
-    getStoreProducts(),
-    getGallery(),
-    getRadioStations(),
+    sturdy('releases', getReleases, []),
+    sturdy('rosters', getRosters, { managed: [], publishing: [] }),
+    sturdy('events', getEvents, []),
+    sturdy('settings', getSiteSettings, null),
+    sturdy('store', getStoreProducts, []),
+    sturdy('gallery', getGallery, GALLERY_MANIFEST),
+    sturdy('radio', getRadioStations, STATIONS),
   ]);
 
   return {

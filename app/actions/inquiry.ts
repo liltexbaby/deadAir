@@ -92,7 +92,11 @@ export async function sendInquiry(_prev: ActionState, formData: FormData): Promi
     artistName: artist.name,
     to,
     cc,
-    subject,
+    // The sender's name goes on the end: Gmail threads mail with the same
+    // subject, so without it every message about one artist (from anyone)
+    // landed in a single conversation. Repeat messages from the same person
+    // still group together.
+    subject: `${subject} — from ${input.name.replace(/[\r\n]+/g, ' ').slice(0, 80)}`,
     fromName: input.name,
     fromEmail: input.email,
     message: input.message,

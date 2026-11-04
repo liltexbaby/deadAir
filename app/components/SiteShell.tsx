@@ -13,6 +13,7 @@ import MgmtPanel from './panels/MgmtPanel';
 import LivePanel from './panels/LivePanel';
 import StorePanel from './panels/StorePanel';
 import GalleryPanel from './panels/GalleryPanel';
+import RadioPlayer from './radio/RadioPlayer';
 
 import { SECTIONS, SECTION_LABELS, type Section } from '@/lib/sections';
 import type { SiteContent } from '@/lib/queries';
@@ -284,6 +285,10 @@ export default function SiteShell({ content }: { content: SiteContent }) {
       </motion.div>
 
       <SoundEffects />
+
+      {/* Transmissions radio under the tower. Home screen only: it fades out
+          while a section is open (still playing), and boots with the rest. */}
+      <RadioPlayer visible={booted && !isPanelOpen} />
 
       {/* Right Panel with content */}
       <RightPanel

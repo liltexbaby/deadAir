@@ -13,6 +13,8 @@ export interface ScWidget {
   play(): void;
   pause(): void;
   isPaused(callback: (paused: boolean) => void): void;
+  /** 0–100 */
+  setVolume(volume: number): void;
 }
 
 /**

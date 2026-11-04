@@ -1825,8 +1825,11 @@ interface ModelViewerProps {
   modelUrl: string;
   /** Header ink to use over the current shot (see HeaderToneProbe). */
   onHeaderTone?: (tone: HeaderTone) => void;
-  /** Everything has loaded and the tower is starting to appear. */
+  /** Everything has loaded and frames are rendering. */
   onReady?: () => void;
+  /** The visitor has tuned in (SceneLoader's tap): run the load-in reveal.
+   *  Until then the tower waits, hidden by SiteShell, fully loaded. */
+  started?: boolean;
 }
 
 /**
@@ -1861,6 +1864,7 @@ export default function ModelViewer({
   modelUrl,
   onHeaderTone = noTone,
   onReady = noTone,
+  started = true,
 }: ModelViewerProps) {
   const coarse = useCoarsePointer();
   const isNarrow = useIsNarrow();
@@ -1976,7 +1980,7 @@ export default function ModelViewer({
             onHover={onHover}
             modelUrl={modelUrl}
           />
-          {reveal !== 'done' && <PixelReveal onStart={startReveal} onDone={endReveal} />}
+          {reveal !== 'done' && started && <PixelReveal onStart={startReveal} onDone={endReveal} />}
           <HeaderToneProbe active={activeSection !== null} narrow={isNarrow} onTone={onHeaderTone} />
           <ReadySignal onReady={onReady} />
 

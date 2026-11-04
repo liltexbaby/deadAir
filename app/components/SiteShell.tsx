@@ -5,7 +5,8 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import ModelViewer, { type HeaderTone } from './ModelViewer';
 import SoundEffects from './SoundEffects';
-import { playSfx } from '@/lib/sound';
+import { isMuted, playSfx, startAmbience, unlockSound } from '@/lib/sound';
+import SoundToggle from './SoundToggle';
 import Navigation from './Navigation';
 import RightPanel from './RightPanel';
 import CatalogGrid from './catalog/CatalogGrid';
@@ -174,14 +175,32 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
   // Boot: the logo and nav stay dark until the tower has loaded, then come
   // online with it — so the page assembles as one machine starting up rather
-  // than UI first and a 3D model trailing in. If the scene fails, or is
-  // still loading after BOOT_FALLBACK_MS, the interface boots on its own.
+  // than UI first and a 3D model trailing in.
+  //
+  // Two steps. `ready`: the tower has loaded (or the scene failed, or it's
+  // still loading after BOOT_FALLBACK_MS) and the loader asks for a tap.
+  // `booted`: the visitor tapped — the tower reveals, the UI comes online and
+  // the boot-up sound plays into the drone. The tap is the gesture browsers
+  // require before any audio. With sound switched off there's nothing to
+  // wait for, so it boots straight away, silently.
+  const [ready, setReady] = useState(false);
   const [booted, setBooted] = useState(false);
-  const boot = useCallback(() => setBooted(true), []);
+  const boot = useCallback(() => setReady(true), []);
   useEffect(() => {
     const t = setTimeout(boot, BOOT_FALLBACK_MS);
     return () => clearTimeout(t);
   }, [boot]);
+  const enter = useCallback(() => {
+    unlockSound();
+    startAmbience();
+    setBooted(true);
+  }, []);
+  useEffect(() => {
+    if (ready && !booted && isMuted()) {
+      const t = setTimeout(() => setBooted(true), 0);
+      return () => clearTimeout(t);
+    }
+  }, [ready, booted]);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   useEffect(() => {
     // The lighter 1K-texture tower everywhere; dev-only ?fulltower loads the
@@ -202,7 +221,13 @@ export default function SiteShell({ content }: { content: SiteContent }) {
       {/* 3D Model Overlay. Boundary is deliberately INSIDE this wrapper so a
           WebGL failure only takes down the scene — the nav and panels above
           keep working rather than the whole client tree unwinding. */}
-      <div className="absolute inset-0 z-10" onWheel={handleWheel}>
+      {/* Hidden until the visitor tunes in: the loaded tower would otherwise
+          sit there in chunky blocks waiting for its reveal. */}
+      <div
+        className="absolute inset-0 z-10"
+        onWheel={handleWheel}
+        style={{ opacity: booted ? 1 : 0, transition: booted ? 'opacity 0s linear 0.1s' : undefined }}
+      >
         <SceneErrorBoundary onError={boot}>
           {modelUrl && (
             <ModelViewer
@@ -214,6 +239,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
               modelUrl={modelUrl}
               onHeaderTone={setHeaderTone}
               onReady={boot}
+              started={booted}
             />
           )}
         </SceneErrorBoundary>
@@ -221,7 +247,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
       <ClientErrorReporter />
 
-      <SceneLoader done={booted} />
+      <SceneLoader done={booted} ready={ready} onEnter={enter} />
 
       {/* Logo + nav. On desktop the panel takes the right half, so this shifts a
           quarter of the viewport left to stay centred in what's still visible.
@@ -285,6 +311,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
       </motion.div>
 
       <SoundEffects />
+      <SoundToggle visible={booted && !isPanelOpen} />
 
       {/* Transmissions radio under the tower. Home screen only: it fades out
           while a section is open (still playing), and boots with the rest. */}

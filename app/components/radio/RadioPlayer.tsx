@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
 import { motion } from 'framer-motion';
 
 import { SOUNDCLOUD_OPTIONS, STATIONS, embedFor } from '@/lib/radio';
-import { playSfx } from '@/lib/sound';
+import { duckAmbience, isMuted, playSfx, subscribeMuted } from '@/lib/sound';
 import { useIsNarrow } from '@/lib/useCoarsePointer';
 import { loadSoundCloudApi, startPlaying, type ScWidget } from './soundcloud';
 import PixelVeil from './PixelVeil';
@@ -48,6 +48,8 @@ const clamp = (v: number) => Math.min(Math.max(v, 0), LAST);
  */
 export default function RadioPlayer({ visible }: { visible: boolean }) {
   const narrow = useIsNarrow();
+  // The site's sound toggle silences the radio too.
+  const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false);
   // Powered: the radio exists (and may be playing). Open: it's on screen.
   const [powered, setPowered] = useState(false);
   const [open, setOpen] = useState(false);
@@ -114,6 +116,8 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
       ...SOUNDCLOUD_OPTIONS,
       callback: () => {
         if (n !== seq.current) return;
+        // A new show comes in at the player's own volume; keep it silent if muted.
+        w.setVolume(isMuted() ? 0 : 100);
         startPlaying(w, () => n === seq.current);
         setScanning(false);
       },
@@ -130,6 +134,7 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
         w.bind(SC.Widget.Events.READY, () => {
           if (widget.current) return;
           widget.current = w;
+          w.setVolume(isMuted() ? 0 : 100);
           const want = STATIONS[wanted.current];
           // Retuned to another SoundCloud show while the player was starting.
           if (want.soundcloud && el.src.indexOf(encodeURIComponent(want.soundcloud)) === -1) bringIn(wanted.current);
@@ -181,6 +186,16 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
     setScSrc(null);
     setMode(null);
   };
+
+  // Sound off: the SoundCloud player goes silent (it keeps its place).
+  useEffect(() => {
+    widget.current?.setVolume(muted ? 0 : 100);
+  }, [muted]);
+
+  // The site's drone steps aside while a show is on.
+  useEffect(() => {
+    duckAmbience(powered && loaded !== null);
+  }, [powered, loaded]);
 
   // Escape closes the radio (before SiteShell's listener, which is for panels).
   useEffect(() => {
@@ -387,7 +402,9 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
           style={{ visibility: mode === 'sc' ? 'visible' : 'hidden' }}
         />
       )}
-      {mode === 'mc' && showing?.mixcloud && (
+      {/* Mixcloud's player can't be muted from outside, so with sound off
+          it's set aside (and comes back, from the top, when sound is on). */}
+      {mode === 'mc' && showing?.mixcloud && !muted && (
         <iframe
           key={loaded}
           title={`deadAir Transmissions w/ ${showing.artist}`}
@@ -398,7 +415,12 @@ export default function RadioPlayer({ visible }: { visible: boolean }) {
         />
       )}
       {/* Between shows: the portraits' pixel break-up, over the player... */}
-      <PixelVeil covered={scanning || loaded === null} />
+      <PixelVeil covered={scanning || loaded === null || (mode === 'mc' && muted)} />
+      {mode === 'mc' && muted && !scanning && (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[9px] uppercase tracking-[0.3em] text-black/45">
+          sound off
+        </span>
+      )}
       {/* ...and, once the old show has gone, a line while the next comes in. */}
       <motion.span
         aria-hidden

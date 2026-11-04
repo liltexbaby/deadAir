@@ -109,7 +109,9 @@ export async function getReleases(): Promise<ReleaseDTO[]> {
       'id, catalog_number, title, artist_name_override, cover_path, spotify_url, apple_music_url, bandcamp_url, youtube_url, soundcloud_url, store_url, artists(name)',
     )
     .eq('published', true)
-    .order('catalog_number', { ascending: true });
+    // Newest first. Undated releases go last; same-day ones by catalog number.
+    .order('release_date', { ascending: false, nullsFirst: false })
+    .order('catalog_number', { ascending: false });
 
   if (error) throw new Error(`getReleases: ${error.message}`);
 

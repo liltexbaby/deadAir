@@ -309,7 +309,7 @@ export default function SiteShell({ content }: { content: SiteContent }) {
 
       {/* Transmissions radio under the tower. Home screen only: it fades out
           while a section is open (still playing), and boots with the rest. */}
-      <RadioPlayer visible={booted && !isPanelOpen} stations={content.radio} />
+      <RadioPlayer visible={booted && !isPanelOpen} stations={content.radio} onSelectSection={setSelectedSection} />
 
       {/* Right Panel with content */}
       <RightPanel
@@ -317,6 +317,8 @@ export default function SiteShell({ content }: { content: SiteContent }) {
         title={selectedSection ? SECTION_LABELS[selectedSection] : ''}
         onClose={handleClose}
         onReset={handleReset}
+        section={selectedSection}
+        onSelect={setSelectedSection}
       >
         {renderPanelContent()}
       </RightPanel>

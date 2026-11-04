@@ -38,6 +38,8 @@ function split(events: EventDTO[]): Record<Tab, EventDTO[]> {
  * renders as a clean title + link.
  */
 function EventMeta({ event }: { event: EventDTO }) {
+  // Past shows (dated before today, as on the PAST tab) don't offer tickets.
+  const past = event.date !== null && event.date < todayIso();
   const place = [event.venue, event.city].filter(Boolean).join(', ');
   const statusLabel = STATUS_LABELS[event.status];
   const isDead = event.status === 'cancelled' || event.status === 'sold_out';
@@ -69,7 +71,7 @@ function EventMeta({ event }: { event: EventDTO }) {
           still decides PRESENT vs PAST (see split()). */}
       {place && <p className="mt-1.5 font-mono text-[11px] text-black/55">{place}</p>}
 
-      {event.ticketUrl && !isDead && (
+      {event.ticketUrl && !isDead && !past && (
         <a
           href={event.ticketUrl}
           target="_blank"

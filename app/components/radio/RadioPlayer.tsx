@@ -6,6 +6,9 @@ import { motion } from 'framer-motion';
 import { SOUNDCLOUD_OPTIONS, STATIONS, embedFor, type Station } from '@/lib/radio';
 import { duckAmbience, isMuted, playSfx, subscribeMuted } from '@/lib/sound';
 import { useIsNarrow } from '@/lib/useCoarsePointer';
+import type { Section } from '@/lib/sections';
+import Image from 'next/image';
+import SectionMenu from '../SectionMenu';
 import { loadSoundCloudApi, startPlaying, type ScWidget } from './soundcloud';
 import PixelVeil from './PixelVeil';
 
@@ -42,7 +45,16 @@ const pad = (i: number) => String(i + 1).padStart(2, '0');
  * preset. Moving off a station breaks the player up into pixel cells (like
  * the MGMT portraits); settling on one starts its show and the cells clear.
  */
-export default function RadioPlayer({ visible, stations = STATIONS }: { visible: boolean; stations?: Station[] }) {
+export default function RadioPlayer({
+  visible,
+  stations = STATIONS,
+  onSelectSection,
+}: {
+  visible: boolean;
+  stations?: Station[];
+  /** Phone sheet: its title menu jumps to a section (the radio steps aside, still playing). */
+  onSelectSection?: (section: Section) => void;
+}) {
   // The station list comes from NTS (lib/nts.ts), so its length varies.
   const COUNT = stations.length;
   const LAST = COUNT - 1;
@@ -594,7 +606,21 @@ export default function RadioPlayer({ visible, stations = STATIONS }: { visible:
           inert={!shown}
         >
           <header className="flex shrink-0 items-center justify-between gap-4 border-b border-black/10 px-5 pb-4 pt-[calc(env(safe-area-inset-top,0px)+1.9rem)]">
-            <h2 className="ui-title font-mono text-xs uppercase tracking-[0.25em] text-black/90">Radio</h2>
+            <div className="flex items-center gap-4">
+              {/* As on the section panels: the logo takes you back to the start
+                  (here: the radio steps aside, still playing). */}
+              <button onClick={close} data-sfx="hover-only" aria-label="deadAir — back to start" className="-m-1 p-1 cursor-pointer">
+                <Image src="/dA.png" alt="" width={56} height={55} className="w-6 h-auto opacity-80 invert" />
+              </button>
+              <SectionMenu
+                title="Radio"
+                current={null}
+                onSelect={(s) => {
+                  setOpen(false);
+                  onSelectSection?.(s);
+                }}
+              />
+            </div>
             <button
               onClick={close}
               data-sfx="hover-only"

@@ -3,6 +3,8 @@
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import Image from 'next/image';
 import { ReactNode, useState } from 'react';
+import type { Section } from '@/lib/sections';
+import SectionMenu from './SectionMenu';
 
 interface RightPanelProps {
   isOpen: boolean;
@@ -11,6 +13,9 @@ interface RightPanelProps {
   onClose: () => void;
   /** dA logo in the header — resets the whole page (see SiteShell). */
   onReset: () => void;
+  /** Phone: the title opens a menu to jump to another section. */
+  section: Section | null;
+  onSelect: (section: Section) => void;
 }
 
 /*
@@ -75,7 +80,7 @@ const fade: Variants = {
 
 const SURFACE = 'ui-surface bg-white/70 sm:bg-white/40 backdrop-blur-xl sm:border-l sm:border-black/15';
 
-export default function RightPanel({ isOpen, title, children, onClose, onReset }: RightPanelProps) {
+export default function RightPanel({ isOpen, title, children, onClose, onReset, section, onSelect }: RightPanelProps) {
   const reduce = useReducedMotion();
   const header = reduce ? fade : headerVariants;
   const bodyClip = reduce ? fade : bodyClipVariants;
@@ -140,7 +145,8 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
               makes the inset irrelevant. */}
           <motion.div
             variants={header}
-            className={`${SURFACE} shrink-0 flex items-center justify-between gap-4 px-5 sm:px-8 pb-4 sm:pb-5 pt-[calc(env(safe-area-inset-top,0px)+1.9rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] border-b border-black/10`}
+            // relative z-10: the section drop-down hangs below the header, over the body.
+            className={`${SURFACE} relative z-10 shrink-0 flex items-center justify-between gap-4 px-5 sm:px-8 pb-4 sm:pb-5 pt-[calc(env(safe-area-inset-top,0px)+1.9rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] border-b border-black/10`}
           >
             <div className="flex items-center gap-4">
               {/* The page header (and its logo) is hidden behind the full-screen
@@ -151,15 +157,21 @@ export default function RightPanel({ isOpen, title, children, onClose, onReset }
                 <Image src="/dA.png" alt="" width={56} height={55} className="w-6 h-auto opacity-80 invert" />
               </button>
               {/* Keyed so a section change re-runs the flicker on the new name. */}
-              <motion.h2
+              <motion.div
                 key={title}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: reduce ? 1 : [0, 1, 0.25, 1] }}
                 transition={{ delay: reduce ? 0 : 0.12, duration: reduce ? 0.15 : 0.3, times: reduce ? undefined : [0, 0.3, 0.5, 1] }}
-                className="ui-title font-mono text-xs uppercase tracking-[0.25em] text-black/90"
               >
-                {title}
-              </motion.h2>
+                {/* Phone: the name is a drop-down to the other sections
+                    (the page nav is hidden behind the sheet). */}
+                <div className="sm:hidden">
+                  <SectionMenu title={title} current={section} onSelect={onSelect} />
+                </div>
+                <h2 className="ui-title hidden font-mono text-xs uppercase tracking-[0.25em] text-black/90 sm:block">
+                  {title}
+                </h2>
+              </motion.div>
             </div>
 
             <button

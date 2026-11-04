@@ -13,18 +13,6 @@ const STATUS_LABELS: Record<string, string> = {
 
 type Tab = 'present' | 'past';
 
-/**
- * Dates are optional by design: the label's live listings include promo cards
- * with a ticket link and nothing else. Every date/venue line is therefore
- * conditional, so an event with no details renders as a clean title + link.
- */
-function formatDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  return d
-    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    .toLowerCase();
-}
-
 /** Local YYYY-MM-DD, comparable as a string against event dates. */
 function todayIso(): string {
   const d = new Date();
@@ -44,6 +32,11 @@ function split(events: EventDTO[]): Record<Tab, EventDTO[]> {
   return { present, past };
 }
 
+/**
+ * Details are optional by design: the label's live listings include promo
+ * cards with a ticket link and nothing else, so an event with no details
+ * renders as a clean title + link.
+ */
 function EventMeta({ event }: { event: EventDTO }) {
   const place = [event.venue, event.city].filter(Boolean).join(', ');
   const statusLabel = STATUS_LABELS[event.status];
@@ -72,13 +65,9 @@ function EventMeta({ event }: { event: EventDTO }) {
         </p>
       )}
 
-      {(event.date || place) && (
-        <p className="mt-1.5 font-mono text-[11px] text-black/55">
-          {event.date && formatDate(event.date)}
-          {event.date && place && <span className="text-black/25"> · </span>}
-          {place}
-        </p>
-      )}
+      {/* No date shown: most listings are tours, not one night. The date
+          still decides PRESENT vs PAST (see split()). */}
+      {place && <p className="mt-1.5 font-mono text-[11px] text-black/55">{place}</p>}
 
       {event.ticketUrl && !isDead && (
         <a

@@ -38,9 +38,7 @@ export default function SceneLoader({ done }: { done: boolean }) {
           aria-label={`Loading, ${pct}%`}
         >
           <div className="flex flex-col gap-2.5 font-mono text-[10px] uppercase tracking-[0.25em] text-black/55">
-            <span>
-              deadAir <span className="text-black/25">{'//'}</span> signal
-            </span>
+            <span>detecting transmission..</span>
             <div className="flex gap-0.75" aria-hidden>
               {Array.from({ length: SEGMENTS }, (_, i) => (
                 <span

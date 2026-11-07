@@ -24,7 +24,7 @@ const FIELD =
   'ui-field mt-1 block w-full rounded-none border border-black/15 bg-white/50 px-2.5 py-2 font-mono text-base sm:text-xs text-black/90 placeholder:text-black/30 outline-none transition-colors hover:border-black/25 focus:border-black/60 focus:bg-white/75';
 
 /**
- * "Send a message" to an artist's team, in place of listing their addresses.
+ * "Contact management" — a message to an artist's team, in place of listing their addresses.
  * Mono, underline-only fields to match the rest of the panels. One form per
  * artist; the server decides which of their addresses it goes to.
  */
@@ -97,7 +97,7 @@ export default function InquiryForm({
               className="space-y-4"
             >
               <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-black/40">
-                send a message
+                contact management <span className="text-black/30">(business inquiries only)</span>
               </p>
               <input type="hidden" name="artistId" value={artist.id} />
 

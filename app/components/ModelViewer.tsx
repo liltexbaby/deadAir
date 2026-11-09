@@ -359,11 +359,12 @@ const BEAMS: BeamSpec[] = [
     grungeSpeed: 24 / 50, screenMix: 0.708,
   },
   {
-    // Light lower — emission flickers on/off, base colour carries it when off
-    object: 'Plane.014', color: [0.204, 0.444, 0.8], emission: 1.0, litBase: 0.35, flicker: true,
-    noiseScale: 5.0, noiseStretch: 1.8, rampLo: 0.486, rampHi: 0.28,
-    grungeLo: 0.409, grungeHi: 0.03, grungeScaleX: 1.0, grungeScaleY: 1.0,
-    grungeSpeed: 24 / 100, screenMix: 0.792,
+    // outline.001 since DA_fixed9.blend (the artist moved this cone off the
+    // flickering "Light lower") — constant glow, same values as Plane.015
+    object: 'Plane.014', color: [0.204, 0.444, 0.8], emission: 2.9, litBase: 0, flicker: false,
+    noiseScale: 5.3, noiseStretch: 4.3, rampLo: 0.5, rampHi: 0.28,
+    grungeLo: 0.823, grungeHi: 0.06, grungeScaleX: -0.56, grungeScaleY: 1.0,
+    grungeSpeed: 24 / 50, screenMix: 0.708,
   },
   {
     // light R.001 — constant glow; Mapping rotates the grunge ~180° about X

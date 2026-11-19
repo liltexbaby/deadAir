@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 
 import type { ManagedArtistDTO } from '@/lib/queries';
-import InquiryForm, { EMPTY_DRAFT, type InquiryDraft } from './InquiryForm';
 import PixelPortrait from './PixelPortrait';
 import { playSfx } from '@/lib/sound';
 
@@ -14,24 +13,21 @@ const SWIPE_VELOCITY = 400;  // ...or a flick this fast, however short
 /**
  * MGMT roster. Two layouts:
  *
- * Desktop: like LIVE — the roster as a menu on the left, and a portrait plus
- * a contact form for the hovered (or clicked) artist on the right.
+ * Desktop: like LIVE — the roster as a menu on the left, and a portrait of
+ * the hovered (or clicked) artist on the right.
  *
  * Phone: one artist at a time in a fixed frame, stepped like the GALLERY
- * viewer (swipe, prev/next, arrow keys), with the current artist's form beneath.
- */
-/**
- * Also renders the PUBLISHING roster, with `showContacts={false}`: a public
- * list with no way to contact anyone.
+ * viewer (swipe, prev/next, arrow keys).
+ *
+ * No contact form: it was removed (2026-11-19) after it was used to send
+ * phishing to the label's inboxes. Also renders the PUBLISHING roster.
  */
 export default function MgmtPanel({
   artists,
-  showContacts = true,
   label = 'Managed roster',
   emptyText = 'no artists listed yet',
 }: {
   artists: ManagedArtistDTO[];
-  showContacts?: boolean;
   label?: string;
   emptyText?: string;
 }) {
@@ -42,8 +38,6 @@ export default function MgmtPanel({
   const [clicks, setClicks] = useState(0);
   // Phone: bumps per prev/next step, to replay that button's wipe.
   const [pulse, setPulse] = useState({ prev: 0, next: 0 });
-  // One draft for the whole roster, so picking another artist keeps what's typed.
-  const [draft, setDraft] = useState<InquiryDraft>(EMPTY_DRAFT);
 
   const count = artists.length;
   // Clamped rather than wrapping: the prev/next controls disable at the ends,
@@ -87,12 +81,7 @@ export default function MgmtPanel({
 
   const atStart = index === 0;
   const atEnd = index === count - 1;
-  // Once a message is being written, hovering the menu stops previewing other
-  // artists — otherwise reaching for the form would retarget it.
-  const writing = draft.message.trim() !== '';
-  const active = artists[(writing ? null : hovered) ?? index];
-  const form = (artist: ManagedArtistDTO) =>
-    showContacts && <InquiryForm key={artist.id} artist={artist} draft={draft} onDraft={setDraft} />;
+  const active = artists[hovered ?? index];
 
   return (
     <>
@@ -201,7 +190,6 @@ export default function MgmtPanel({
               </span>
             )}
           </div>
-          {form(active)}
         </div>
       )}
     </div>
@@ -288,7 +276,6 @@ export default function MgmtPanel({
         />
       </div>
 
-      {form(artists[index])}
     </div>
     </>
   );

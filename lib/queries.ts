@@ -28,9 +28,8 @@ export interface ManagedArtistDTO {
   externalLabel: string | null;
   imageUrl: string | null;
   /**
-   * No addresses: visitors reach an email contact through the contact form
-   * (app/actions/inquiry.ts resolves the address server-side), so they stay
-   * out of the page HTML. `messageable` marks the roles the form can target.
+   * No addresses: they stay out of the page HTML. (The contact form that
+   * used them was removed after phishing spam.)
    */
   contacts: { role: string; label: string; name: string | null; url: string | null; messageable: boolean }[];
   /** Message-box prompt for this artist ({artist} -> name); null = default. */

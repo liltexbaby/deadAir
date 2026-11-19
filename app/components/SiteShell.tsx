@@ -104,7 +104,6 @@ export default function SiteShell({ content }: { content: SiteContent }) {
         return (
           <MgmtPanel
             artists={content.publishingArtists}
-            showContacts={false}
             label="Publishing roster"
             emptyText="no publishing clients listed yet"
           />
